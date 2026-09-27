@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "sandpaper",
+  "version": "${version}",
+  "name": "Sandpaper API",
+  "description": "A cooperative frame-budget scheduler and off-thread work pool for mods' periodic background work. Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/sandpaper/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.sandpaper.SandpaperClient"
+    ],
+    "modmenu": [
+      "dev.sandpaper.client.SandpaperModMenu"
+    ],
+    "sandpaper-settings": [
+      "dev.sandpaper.client.SandpaperConfigScreen"
+    ]
+  },
+  "mixins": [
+    "sandpaper.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "~${minecraft_version}",
+    "java": ">=25",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "modmenu": "*"
+  }
+}
