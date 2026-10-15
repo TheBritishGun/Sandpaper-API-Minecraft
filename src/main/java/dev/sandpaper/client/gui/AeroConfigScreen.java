@@ -5,6 +5,7 @@ import java.util.function.UnaryOperator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.gui.narration.NarratedElementType;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
@@ -73,6 +74,7 @@ public final class AeroConfigScreen extends Screen {
         this.painter.onDone(this::applyAndClose);
         // Already guarded in SettingsContributions.row
         this.painter.onButton(Opt.Action::run);
+        this.painter.onPress(this::playClick);
     }
     @Override
     protected void init() {
@@ -248,6 +250,10 @@ public final class AeroConfigScreen extends Screen {
     // Minecraft field is set before any callback fires
     private Minecraft client() {
         return minecraft == null ? Minecraft.getInstance() : minecraft;
+    }
+    // Vanilla's button click, once per press that acts; client thread only
+    private void playClick() {
+        AbstractWidget.playButtonClickSound(client().getSoundManager());
     }
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {

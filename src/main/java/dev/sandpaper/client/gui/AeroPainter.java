@@ -155,6 +155,8 @@ public final class AeroPainter {
     private int hoveredPage = -1;
     private boolean draggingSlider;
     private Opt dragOption;
+    // The dragged slider's value when its press began
+    private Object dragFrom;
     private boolean draggingBar;
     private int barGrab;
     private boolean searchFocused;
@@ -188,6 +190,7 @@ public final class AeroPainter {
     private Consumer<Opt.Action> buttonAction = opt -> { };
     private Runnable applyAction = () -> { };
     private Runnable doneAction = () -> { };
+    private Runnable pressAction = () -> { };
     public AeroPainter(String title, List<OptPage> pages) {
         this.title = title;
         this.pages = List.copyOf(pages);
@@ -210,6 +213,10 @@ public final class AeroPainter {
     }
     public void onDone(Runnable action) {
         this.doneAction = action;
+    }
+    // Runs once for each press that acts
+    void onPress(Runnable action) {
+        this.pressAction = action;
     }
     public void refreshTitle(net.minecraft.network.chat.Component title) {
         this.title = plain(title);
@@ -1744,6 +1751,7 @@ public final class AeroPainter {
             // Invariant: searchFocused must equal (focusZone == 2); every exit must keep that true.
             searchFocused = false;
             focusZone = 0;
+            pressAction.run();
             return true;
         }
         int sx = searchX();
@@ -1763,11 +1771,13 @@ public final class AeroPainter {
         int applyX = footerApplyX();
         if (inside(mx, my, doneX, btnY, btnW, btnH)) {
             commitEditing();
+            pressAction.run();
             doneAction.run();
             return true;
         }
         if (inside(mx, my, applyX, btnY, btnW, btnH)) {
             commitEditing();
+            pressAction.run();
             applyAction.run();
             return true;
         }
@@ -1791,6 +1801,7 @@ public final class AeroPainter {
         if (!option.available()) {
             return true;
         }
+        Object before = pendingOf(option);
         if (button == 1) {
             // Only case that discards, not commits
             if (editingOption == option) {
@@ -1801,25 +1812,32 @@ public final class AeroPainter {
                 openEditor(option, field.defaultValue());
             } else {
                 option.reset();
+                pressIfChanged(option, before);
             }
             return true;
         }
         switch (e.kind) {
-            case TOGGLE -> toggle(option);
+            case TOGGLE -> {
+                toggle(option);
+                pressIfChanged(option, before);
+            }
             case ENUM -> {
                 // Splits at the enum control's own centre
                 int cw = enumWidths.getOrDefault(option, CONTROL_W);
                 cycle(option, mx < enumLeft(cw) + cw / 2 ? -1 : 1);
+                pressIfChanged(option, before);
             }
             case SLIDER -> {
                 if (mx >= controlX()) {
                     draggingSlider = true;
                     dragOption = option;
+                    dragFrom = before;
                     dragSlider(mx);
                 }
             }
             case BUTTON -> {
                 if (option instanceof Opt.Action b) {
+                    pressAction.run();
                     buttonAction.accept(b);
                 }
             }
@@ -1839,9 +1857,14 @@ public final class AeroPainter {
         }
     }
     public void release() {
+        boolean moved = draggingSlider && !Objects.equals(dragFrom, pendingOf(dragOption));
         draggingSlider = false;
         dragOption = null;
+        dragFrom = null;
         draggingBar = false;
+        if (moved) {
+            pressAction.run();
+        }
     }
     // Snaps to a whole number of steps from the row's minimum; interval 0 means no snapping.
     private static double snapToInterval(double raw, double min, double interval) {
@@ -1906,6 +1929,15 @@ public final class AeroPainter {
         scroll = clampOffset(scroll - (int) Math.round(amount * ROW_H), max);
         current = sectionAt(scroll);
         return true;
+    }
+    // The row's pending value, or null for a row that holds none
+    private static Object pendingOf(Opt option) {
+        return option instanceof Opt.Value<?> value ? value.pending() : null;
+    }
+    private void pressIfChanged(Opt option, Object before) {
+        if (!Objects.equals(before, pendingOf(option))) {
+            pressAction.run();
+        }
     }
     private static void toggle(Opt option) {
         if (option instanceof Opt.Bool flag) {
@@ -2216,7 +2248,12 @@ public final class AeroPainter {
         }
         if (dy != 0) {
             if (focusZone == 0) {
-                selectPage(nextShown(current, dy));
+                int target = nextShown(current, dy);
+                boolean shown = sectionShown(target);
+                selectPage(target);
+                if (shown) {
+                    pressAction.run();
+                }
                 return true;
             }
             moveFocus(dy);
@@ -2226,6 +2263,8 @@ public final class AeroPainter {
                 || !focused.option.available()) {
             return false;
         }
+        Opt option = focused.option;
+        Object before = pendingOf(option);
         switch (focused.kind) {
             case SLIDER -> nudgeSlider(focused.option, dx);
             case ENUM -> cycle(focused.option, dx);
@@ -2234,6 +2273,7 @@ public final class AeroPainter {
                 return false;
             }
         }
+        pressIfChanged(option, before);
         return true;
     }
     // Moving focus also scrolls to keep the row visible
@@ -2318,12 +2358,15 @@ public final class AeroPainter {
         if (focusZone == 0 || focused == null || !focused.option.available()) {
             return false;
         }
+        Opt option = focused.option;
+        Object before = pendingOf(option);
         switch (focused.kind) {
             case TOGGLE -> toggle(focused.option);
             case ENUM -> cycle(focused.option, 1);
             case STRING, COLOUR, NUMBER -> startEditing(focused.option);
             case BUTTON -> {
                 if (focused.option instanceof Opt.Action b) {
+                    pressAction.run();
                     buttonAction.accept(b);
                 }
             }
@@ -2331,6 +2374,7 @@ public final class AeroPainter {
                 return false;
             }
         }
+        pressIfChanged(option, before);
         return true;
     }
     public void cycleZone(int direction) {
