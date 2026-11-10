@@ -16,12 +16,15 @@ public final class SandpaperKeys {
     }
     // Call once, from the client initializer; a second call adds a duplicate listener.
     public static void register() {
-        openSettings = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.sandpaper.open_settings",
-                InputConstants.Type.KEYSYM,
-                InputConstants.getKey("key.keyboard.k").getValue(),
-                CATEGORY));
+        openSettings = KeyMappingHelper.registerKeyMapping(openSettingsMapping());
         ClientTickEvents.END_CLIENT_TICK.register(SandpaperKeys::handleKeys);
+    }
+    static KeyMapping openSettingsMapping() {
+        return new KeyMapping(
+                "key.sandpaper.open_settings",
+                InputConstants.Type.KEYBOARD,
+                InputConstants.getKey("key.keyboard.k").getValue(),
+                CATEGORY);
     }
     private static void handleKeys(Minecraft client) {
         while (openSettings.consumeClick()) {

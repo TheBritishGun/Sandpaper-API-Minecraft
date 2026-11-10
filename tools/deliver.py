@@ -15,6 +15,8 @@ USERPROFILE = Path(os.environ.get("USERPROFILE", Path.home()))
 DEFAULT_INSTALLER_ROOT = USERPROFILE / "Desktop" / "Open-Map AIO installers"
 DEFAULT_PROFILE_MODS = (USERPROFILE / "AppData" / "Roaming" / "ModrinthApp" /
                         "profiles" / "Fabric-26.2-migrated" / "mods")
+# The Minecraft version of the profile above; a jar built for another version never goes in.
+PROFILE_MINECRAFT_VERSION = "26.2"
 
 
 class Refusal(Exception):
@@ -28,6 +30,25 @@ def sha256(path):
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def jar_minecraft_version(jar):
+    """Return the Minecraft version in a built jar's name (name-1.0.1+26.3.jar), or None."""
+    stem = Path(jar).name
+    if stem.endswith(".jar"):
+        stem = stem[:-len(".jar")]
+    if "+" not in stem:
+        return None
+    return stem.rsplit("+", 1)[1]
+
+
+def version_refusal(jar):
+    """Return why this jar cannot go to the 26.2 profile, or None when it can."""
+    version = jar_minecraft_version(jar)
+    if version is not None and version != PROFILE_MINECRAFT_VERSION:
+        return ("jar is built for Minecraft %s, but the profile is Minecraft %s: %s"
+                % (version, PROFILE_MINECRAFT_VERSION, jar))
+    return None
 
 
 def destination_paths(jar, mod, installer_root, profile_mods):
@@ -62,6 +83,9 @@ def preflight(jar, mod, installer_root, profile_mods, archive_root,
     jar = Path(jar)
     if not jar.is_file():
         raise Refusal("built jar is missing: %s" % jar)
+    wrong_version = version_refusal(jar)
+    if wrong_version:
+        raise Refusal(wrong_version)
     destinations = destination_paths(jar, mod, installer_root, profile_mods)
     labels = ("installer destination", "profile destination")
     for label, destination in zip(labels, destinations):
@@ -91,6 +115,9 @@ def plan(jar, mod, installer_root, profile_mods, archive_root):
     """Print the destinations and current replacement candidates without writing."""
     destinations = destination_paths(jar, mod, installer_root, profile_mods)
     print("Delivery plan only. Pass --deliver to publish.")
+    wrong_version = version_refusal(jar)
+    if wrong_version:
+        print("  would refuse: %s" % wrong_version)
     print("  jar      : %s" % jar)
     print("  installer: %s" % destinations[0])
     print("  profile  : %s" % destinations[1])

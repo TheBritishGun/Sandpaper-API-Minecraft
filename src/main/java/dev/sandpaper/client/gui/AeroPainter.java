@@ -1,4 +1,5 @@
 package dev.sandpaper.client.gui;
+import com.mojang.blaze3d.platform.InputConstants;
 import dev.sandpaper.client.gui.options.Opt;
 import dev.sandpaper.client.gui.options.Opt.Kind;
 import dev.sandpaper.client.gui.options.OptPage;
@@ -1802,7 +1803,7 @@ public final class AeroPainter {
             return true;
         }
         Object before = pendingOf(option);
-        if (button == 1) {
+        if (button == InputConstants.MOUSE_BUTTON_RIGHT) {
             // Only case that discards, not commits
             if (editingOption == option) {
                 stopEditing();

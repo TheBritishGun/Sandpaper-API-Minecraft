@@ -1,4 +1,5 @@
 package dev.sandpaper.client.font;
+import com.mojang.blaze3d.Blaze3D;
 import dev.sandpaper.core.CoreLog;
 import dev.sandpaper.font.FontLibrary;
 import dev.sandpaper.font.FontLibrary.Face;
@@ -16,7 +17,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
-import net.minecraft.util.Util;
 // Native font-file dialog via reflection; must run on a worker thread, it blocks.
 public final class FontPicker {
     private static final String DIALOGS = "org.lwjgl.util.tinyfd.TinyFileDialogs";
@@ -233,6 +233,6 @@ public final class FontPicker {
             System.err.println(CoreLog.STANDARD_ERROR_PREFIX + "could not create " + folder + ": " + e);
             return;
         }
-        Util.getPlatform().openPath(folder);
+        Blaze3D.openPath(folder);
     }
 }

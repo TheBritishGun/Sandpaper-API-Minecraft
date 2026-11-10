@@ -1,4 +1,5 @@
 package dev.sandpaper.client.gui;
+import com.mojang.blaze3d.platform.InputConstants;
 import dev.sandpaper.Sandpaper;
 import dev.sandpaper.client.gui.options.Opt;
 import java.util.function.UnaryOperator;
@@ -21,19 +22,6 @@ import org.slf4j.LoggerFactory;
 // Owns input, saving and narration; all drawing is done by AeroPainter
 public final class AeroConfigScreen extends Screen {
     private static final Logger LOGGER = LoggerFactory.getLogger(Sandpaper.MOD_ID);
-    // No lwjgl jar on this classpath
-    private static final int KEY_SPACE = 32;
-    private static final int KEY_ENTER = 257;
-    private static final int KEY_TAB = 258;
-    private static final int KEY_BACKSPACE = 259;
-    private static final int KEY_DELETE = 261;
-    private static final int KEY_RIGHT = 262;
-    private static final int KEY_LEFT = 263;
-    private static final int KEY_DOWN = 264;
-    private static final int KEY_UP = 265;
-    private static final int KEY_HOME = 268;
-    private static final int KEY_END = 269;
-    private static final int KEY_KP_ENTER = 335;
     private static final SystemToast.SystemToastId STAGE_FAILED_TOAST =
             new SystemToast.SystemToastId();
     private static final SystemToast.SystemToastId SETTINGS_NOT_SAVED_TOAST =
@@ -324,48 +312,48 @@ public final class AeroConfigScreen extends Screen {
             }
         }
         switch (event.key()) {
-            case KEY_BACKSPACE -> {
+            case InputConstants.KEY_BACKSPACE -> {
                 if (painter.backspace()) {
                     return true;
                 }
             }
-            case KEY_DELETE -> {
+            case InputConstants.KEY_DELETE -> {
                 if (painter.delete()) {
                     return true;
                 }
             }
-            case KEY_HOME -> {
+            case InputConstants.KEY_HOME -> {
                 if (painter.caretHome()) {
                     return true;
                 }
             }
-            case KEY_END -> {
+            case InputConstants.KEY_END -> {
                 if (painter.caretEnd()) {
                     return true;
                 }
             }
-            case KEY_UP -> {
+            case InputConstants.KEY_UP -> {
                 return painter.arrow(0, -1);
             }
-            case KEY_DOWN -> {
+            case InputConstants.KEY_DOWN -> {
                 return painter.arrow(0, 1);
             }
-            case KEY_LEFT -> {
+            case InputConstants.KEY_LEFT -> {
                 return painter.arrow(-1, 0);
             }
-            case KEY_RIGHT -> {
+            case InputConstants.KEY_RIGHT -> {
                 return painter.arrow(1, 0);
             }
-            case KEY_TAB -> {
+            case InputConstants.KEY_TAB -> {
                 painter.cycleZone(event.hasShiftDown() ? -1 : 1);
                 return true;
             }
-            case KEY_ENTER, KEY_KP_ENTER -> {
+            case InputConstants.KEY_RETURN, InputConstants.KEY_NUMPADENTER -> {
                 if (painter.activate()) {
                     return true;
                 }
             }
-            case KEY_SPACE -> {
+            case InputConstants.KEY_SPACE -> {
                 if (!typing() && painter.activate()) {
                     return true;
                 }

@@ -2,7 +2,7 @@
 
 Frame time budget scheduler for mods of java Minecraft. A port of my steam version of Sandpaper API, which was created because i got mad at a VTOL VR Mod's performance, and decided to make an engine that cannot cause frame stutter if used properly.
 
-Minecraft 26.2, Fabric, Java 25. Client side.
+Minecraft 26.3, Fabric, Java 25. Client side.
 
 ## What it does
 
@@ -22,7 +22,7 @@ copy.
 Nest the jar, and depend on it, in `fabric.mod.json`:
 
 ```json
-"jars": [ { "file": "META-INF/jars/sandpaper-1.0.0+26.2.jar" } ],
+"jars": [ { "file": "META-INF/jars/sandpaper-1.0.1+26.3.jar" } ],
 "depends": { "sandpaper": ">=1.0.0" }
 ```
 
@@ -70,7 +70,7 @@ python tools/fetch_deps.py
 python build.py
 ```
 
-The jar is `build/sandpaper-<version>+26.2.jar`.
+The jar is `build/sandpaper-<version>+26.3.jar`.
 
 ## License
 

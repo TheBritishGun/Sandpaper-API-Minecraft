@@ -13,11 +13,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import net.minecraft.SharedConstants;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
-import net.minecraft.server.packs.AbstractPackResources;
+import net.minecraft.server.packs.AbstractPackMetadataResources;
 import net.minecraft.server.packs.PackLocationInfo;
+import net.minecraft.server.packs.PackMetadataResources;
 import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.PackSelectionConfig;
 import net.minecraft.server.packs.PackType;
@@ -27,7 +29,7 @@ import net.minecraft.server.packs.repository.RepositorySource;
 import net.minecraft.server.packs.resources.IoSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-public final class FontResourcePack extends AbstractPackResources {
+public final class FontResourcePack extends AbstractPackMetadataResources implements PackResources {
     public static final String NAMESPACE = Sandpaper.MOD_ID;
     public static final String PACK_ID = "sandpaper_fonts";
     private static final String FONT_DIRECTORY = "font/";
@@ -177,12 +179,13 @@ public final class FontResourcePack extends AbstractPackResources {
                     location,
                     new Pack.ResourcesSupplier() {
                         @Override
-                        public PackResources openPrimary(PackLocationInfo info) {
+                        public PackMetadataResources openMetadata(PackLocationInfo info) {
                             return new FontResourcePack(info, library, selection, definitions);
                         }
                         @Override
-                        public PackResources openFull(PackLocationInfo info, Pack.Metadata meta) {
-                            return new FontResourcePack(info, library, selection, definitions);
+                        public Stream<PackResources> openResources(PackLocationInfo info,
+                                Pack.Metadata meta) {
+                            return Stream.of(new FontResourcePack(info, library, selection, definitions));
                         }
                     },
                     PackType.CLIENT_RESOURCES,
@@ -239,7 +242,7 @@ public final class FontResourcePack extends AbstractPackResources {
     }
     @Override
     public void listResources(PackType type, String namespace, String prefix,
-                              ResourceOutput output) {
+                              PackResources.ResourceOutput output) {
         if (type != PackType.CLIENT_RESOURCES) {
             return;
         }

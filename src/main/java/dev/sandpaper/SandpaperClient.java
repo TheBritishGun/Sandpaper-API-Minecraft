@@ -1,4 +1,5 @@
 package dev.sandpaper;
+import com.mojang.blaze3d.platform.VideoMode;
 import com.mojang.blaze3d.platform.Window;
 import dev.sandpaper.client.SandpaperConfigScreen;
 import dev.sandpaper.client.SandpaperKeys;
@@ -175,7 +176,7 @@ public final class SandpaperClient implements ClientModInitializer {
         }
         if (++framesSinceRefreshRatePoll >= REFRESH_RATE_POLL_FRAMES) {
             framesSinceRefreshRatePoll = 0;
-            refreshRateHz = window.getRefreshRate();
+            refreshRateHz = refreshRateOf(window.getActiveVideoMode());
         }
         int limit = client.options.framerateLimit().get();
         boolean vsync = client.options.enableVsync().get();
@@ -197,6 +198,14 @@ public final class SandpaperClient implements ClientModInitializer {
     }
     private static boolean isRealCap(int limit, int cutoff) {
         return limit > 0 && limit < cutoff;
+    }
+    // Whole hertz of the active display mode; 0 when the window has none.
+    // mode may be null.
+    static int refreshRateOf(VideoMode mode) {
+        if (mode == null) {
+            return 0;
+        }
+        return Math.round(mode.getRefreshRate());
     }
     // The rate actually achievable, from the limit, vsync and the display refresh rate.
     private static int pacedFramerate(int limit, boolean vsync, int refreshRateHz) {
