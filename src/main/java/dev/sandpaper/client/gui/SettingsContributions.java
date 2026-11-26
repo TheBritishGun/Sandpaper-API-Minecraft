@@ -26,19 +26,15 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-// Translates contributor settings pages into screen rows; each contributor is isolated.
 public final class SettingsContributions {
     private static final Logger LOGGER = LoggerFactory.getLogger(Sandpaper.MOD_ID);
     private static final String UNREADABLE_COLOUR = "which is not a preset name and not six "
             + "or eight hex digits";
-    // Fallback for an unreadable mod id; sorts before every real id.
     private static final String UNNAMED = "(unnamed mod)";
-    // Sorts host first, then by mod id; ties keep the loader's order.
     private static final Comparator<EntrypointContainer<SettingsContributor>> ORDER =
             Comparator.<EntrypointContainer<SettingsContributor>>comparingInt(
                             container -> Sandpaper.MOD_ID.equals(modIdOf(container)) ? 0 : 1)
                     .thenComparing(SettingsContributions::modIdOf);
-    // Bumped in gather() and closed(); read only on the client thread.
     private static long gatherings;
     private static final Map<EntrypointContainer<SettingsContributor>, String> MOD_IDS =
             new IdentityHashMap<>();
@@ -58,10 +54,8 @@ public final class SettingsContributions {
         this.savers = List.copyOf(savers);
         this.gathering = gathering;
     }
-    // One page reaching the screen, with its owner's mod id and a stable id for reopening.
     public record Contributed(String modId, Identifier id, OptPage page) {
     }
-    // A contributor with at least one page on screen, and the mod id to report it as.
     private record Saver(String modId, SettingsContributor contributor) {
     }
     private static final class SaveFailureReport {
@@ -92,36 +86,27 @@ public final class SettingsContributions {
             return total;
         }
     }
-    // One drawn row and the rule that says whether the reader may touch it.
     private record Conditional(Opt row, BooleanSupplier rule) {
     }
-    // Refreshes one contributor's rules after an edit, a press, a rebuild, or its own callback.
     private static final class Live implements SettingsContributor.Rules {
-        // The lowest bound on refresh passes; arm() may raise it for a page with many followers.
         private static final int PASSES = 13;
         private final String modId;
         private final List<Conditional> conditional = new ArrayList<>();
         private final List<Opt.Value<?>> edits = new ArrayList<>();
         private final List<Runnable> following = new ArrayList<>();
         private int followingRuleLimit;
-        // The current bound on refresh passes; raised in arm() for a page with many followers.
         private int bound = PASSES;
         private int restageBound = 1;
         private boolean[] followerReported = {};
         private boolean[] ruleReported = {};
         private long revision;
-        // The thread these rows were built on; only that thread may sweep them.
         private final Thread built = Thread.currentThread();
-        // Which gather() call built these rows.
         private final long gathering = gatherings;
         private final Gathering mine;
         private boolean missed;
-        // Set while refresh() is walking.
         private boolean sweeping;
-        // Set when a staged write moves a row during a sweep.
         private boolean moved;
         private int telling;
-        // Whether an off-thread askAgain() was already reported; caps the log at once per opening.
         private final AtomicBoolean toldOffThread = new AtomicBoolean();
         private Live(String modId) {
             this(modId, new Gathering());
@@ -136,7 +121,6 @@ public final class SettingsContributions {
                 refresh();
             }
         }
-        // Re-asks this contributor's rules; must be called from the thread that built these rows.
         @Override
         public void askAgain() {
             Thread caller = Thread.currentThread();
@@ -181,7 +165,6 @@ public final class SettingsContributions {
             }
             return true;
         }
-        // Remembers every row, not just ones with a rule.
         private Opt holds(OptionSpec option, Opt row) {
             if (option.available().getClass().getNestHost() != OptionSpec.class) {
                 conditional.add(new Conditional(row, option.available()));
@@ -191,12 +174,10 @@ public final class SettingsContributions {
             }
             return row;
         }
-        // Remembers only rows with a follower, unlike holds().
         private void follows(Runnable restage) {
             following.add(restage);
             followingRuleLimit = conditional.size();
         }
-        // Adds the refresh listener after the contributor's own.
         @SuppressWarnings({"unchecked", "rawtypes"})
         private void arm() {
             bound = Math.max(PASSES, conditional.size() + 1);
@@ -209,7 +190,6 @@ public final class SettingsContributions {
             }
             refresh();
         }
-        // Stages every row before asking any rule.
         private void refresh() {
             if (sweeping) {
                 moved = true;
@@ -278,11 +258,9 @@ public final class SettingsContributions {
                 sweeping = false;
             }
         }
-        // Stages every following row, one guard each.
         private void restage() {
             guard(following, followerReported, Runnable::run, "what it should be showing");
         }
-        // Ask every rule again, one guard each.
         private void ask() {
             guard(conditional, ruleReported,
                     one -> one.row().setAvailable(one.rule().getAsBoolean()),
@@ -313,7 +291,6 @@ public final class SettingsContributions {
                 at++;
             }
         }
-        // A row's change listener; a throw costs one edit.
         private <T, R extends Opt.Value<T>> R watched(R row, Consumer<T> listener) {
             boolean[] told = { false };
             row.onChange(staged -> {
@@ -333,7 +310,6 @@ public final class SettingsContributions {
             });
             return row;
         }
-        // Wraps a button action; a throw costs one press only, and the sweep still runs after it.
         private Runnable pressed(Runnable action) {
             return () -> {
                 telling++;
@@ -354,9 +330,7 @@ public final class SettingsContributions {
     static void closed() {
         gatherings++;
     }
-    // Asks the loader for settings contributors and translates their pages; runs on every open.
     public static SettingsContributions gather() {
-        // Incremented first, before anything that can fail.
         gatherings++;
         MOD_IDS.clear();
         Gathering made = new Gathering();
@@ -411,13 +385,10 @@ public final class SettingsContributions {
                         + "its section is left out.", modId, broken);
                 continue;
             }
-            // Skips saving when no page reached the screen.
             if (mine.isEmpty()) {
                 continue;
             }
-            // arm() cannot throw; it guards its own rule calls.
             live.arm();
-            // Called after arm(), in its own guard.
             try {
                 contributor.screenOpened(live);
             } catch (Throwable broken) {
@@ -440,11 +411,9 @@ public final class SettingsContributions {
             live.drawnAgain();
         }
     }
-    // Every page that reached the screen, in the order the left column draws them.
     public List<Contributed> contributed() {
         return contributed;
     }
-    // The same pages, for a caller that wants only what it draws.
     public List<OptPage> pages() {
         OptPage[] drawn = new OptPage[contributed.size()];
         for (int index = 0; index < drawn.length; index++) {
@@ -452,7 +421,6 @@ public final class SettingsContributions {
         }
         return List.of(drawn);
     }
-    // Stages every contributed row's value; call before saveAll(), safe to call more than once.
     public boolean applyAll() {
         boolean everythingStaged = true;
         for (Contributed one : contributed) {
@@ -472,7 +440,6 @@ public final class SettingsContributions {
         }
         return everythingStaged;
     }
-    // Writes each contributor's settings once; keeps going after a failure instead of stopping.
     public boolean saveAll() {
         Sandpaper.carryBackgroundSaveFailures(SettingsContributions::backToTheSaveThatStartedIt);
         boolean everythingSaved = true;
@@ -564,7 +531,6 @@ public final class SettingsContributions {
         return new OptPage(page.title(), groups,
                 page.icon() == null ? null : page.icon().toString());
     }
-    // Exhaustive switch over the sealed option types; no default.
     private static Opt row(OptionSpec option, Live live) {
         Opt built = switch (option) {
             case OptionSpec.Toggle toggle -> flag(toggle, live);
@@ -586,7 +552,6 @@ public final class SettingsContributions {
         follow(live, toggle.showing(), row::set);
         return row;
     }
-    // Stages values via setNumber, not set.
     private static Opt slider(OptionSpec.IntSlider slider, Live live) {
         Function<Integer, Component> label = slider.label();
         return ranged(label, live,
@@ -632,7 +597,6 @@ public final class SettingsContributions {
             });
         }
     }
-    // Bounds are checked only by the drawn row, not duplicated here.
     private static Opt typed(OptionSpec.IntField number, Live live) {
         Opt.Ints row = live.watched(Opt.Ints.typed(number.name(), number.description(),
                 number.defaultValue(), number.current(), number.sink(), number.min(),
@@ -640,7 +604,6 @@ public final class SettingsContributions {
         follow(live, number.showing(), value -> row.setNumber(value));
         return row;
     }
-    // No refusal rule means no wrapper is built.
     private static Opt line(OptionSpec.Text text, Live live) {
         Function<String, Component> refusing = text.refusing();
         Opt.Text row = live.watched(refusing == null
@@ -656,7 +619,6 @@ public final class SettingsContributions {
         follow(live, text.showing(), row::set);
         return row;
     }
-    // Guards a per-frame call; a throw returns null, which each caller reads differently.
     private static <T> Function<T, String> askedWhileDrawing(Function<T, Component> answer,
             String modId, String asked, String instead, Live live) {
         return new DrawnAnswer<>(answer, modId, asked, instead, live);
@@ -710,7 +672,6 @@ public final class SettingsContributions {
             }
         }
     }
-    // setIndex drops a follower's out-of-range index instead of throwing.
     private static Opt cycle(OptionSpec.Choice choice, Live live) {
         List<Component> labels = choice.labels();
         Opt.Cycle<Integer> row = live.watched(Opt.Cycle.overIndices(choice.name(),
@@ -720,7 +681,6 @@ public final class SettingsContributions {
         follow(live, choice.showing(), row::setIndex);
         return row;
     }
-    // Text that fails to parse keeps the last colour and logs it; not a contributor fault.
     private static Opt swatch(OptionSpec.Colour colour, Live live) {
         Opt.Swatch current = Opt.Swatch.parse(colour.current(), colour.shippedArgb() >>> 24);
         if (current == null && colour.current() != null) {

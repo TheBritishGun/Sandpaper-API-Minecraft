@@ -28,7 +28,7 @@
   "sandpaper.config.group.threads": "worker threads",
   "sandpaper.config.group.threads.desc": "This machine reports %2$s processors. The automatic setting uses %1$s workers. Needs a restart.",
   "sandpaper.option.worker_threads": "worker threads",
-  "sandpaper.option.worker_threads.desc": "Zero sizes it from the machine: processors minus two, capped at six. Needs a restart.",
+  "sandpaper.option.worker_threads.desc": "Zero sizes it from the machine: one worker for every processor except one, left for the render thread. Needs a restart.",
   "sandpaper.option.queue_capacity": "queue capacity",
   "sandpaper.option.queue_capacity.desc": "Bounds both halves of the pool: jobs waiting for a worker, and finished results waiting to be handed back on the main thread. Needs a restart.",
 
@@ -96,5 +96,11 @@
   "sandpaper.toast.rebuild_refused.body": "Not changed. Try again when saving finishes",
 
   "sandpaper.toast.font_pick_dropped.title": "Font not selected",
-  "sandpaper.toast.font_pick_dropped.body": "Font copied, not selected. Open settings to choose it"
+  "sandpaper.toast.font_pick_dropped.body": "Font copied, not selected. Open settings to choose it",
+
+  "sandpaper.config.group.themes": "section themes",
+  "sandpaper.option.section_themes": "Section themes",
+  "sandpaper.option.section_themes.desc": "Use a theme for each settings section.",
+  "sandpaper.theme.workbench": "Joiner's Workbench",
+  "sandpaper.theme.aero_fallback": "Aero fallback"
 }

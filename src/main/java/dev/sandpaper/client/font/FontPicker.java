@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Util;
-// Native font-file dialog via reflection; must run on a worker thread, it blocks.
+// Native font dialog via reflection.
 public final class FontPicker {
     private static final String DIALOGS = "org.lwjgl.util.tinyfd.TinyFileDialogs";
     private static final String STACK = "org.lwjgl.system.MemoryStack";
@@ -28,7 +28,7 @@ public final class FontPicker {
     private static final AtomicBoolean OPEN = new AtomicBoolean();
     private FontPicker() {
     }
-    // Whether the dialog can open; false greys the row instead of throwing.
+    // Whether the dialog can open.
     public static boolean available() {
         return dialogs() != null;
     }
@@ -39,7 +39,7 @@ public final class FontPicker {
             return null;
         }
     }
-    // Opens the dialog and installs the font; the callback runs on the client thread.
+    // Opens the dialog and installs the chosen font.
     public static void pick(FontLibrary library, Runnable fontAdded,
             Consumer<String> installed) {
         if (!OPEN.compareAndSet(false, true)) {
@@ -103,7 +103,6 @@ public final class FontPicker {
             return in.readNBytes(tag, 0, tag.length) == tag.length;
         }
     }
-    // A null filter still opens the dialog, just unfiltered.
     private static String open(Path fontDirectory) throws ReflectiveOperationException {
         Class<?> tinyfd = dialogs();
         if (tinyfd == null) {
@@ -114,7 +113,6 @@ public final class FontPicker {
                 CharSequence.class, CharSequence.class, pointerClass,
                 CharSequence.class, boolean.class);
         String start = fontDirectory.toAbsolutePath() + File.separator;
-        // Stack must stay pushed for the whole call; the pattern buffer lives on it
         Object stack = null;
         Object filters = null;
         try {
@@ -200,7 +198,7 @@ public final class FontPicker {
         }
         return folder.resolve(stem + "-" + System.currentTimeMillis() + extension);
     }
-    // Reloads only if adopting the scan changes anything.
+    // Reloads when the scan changes.
     static void refreshAndFind(FontLibrary library, Runnable fontAdded, Path copied,
             Executor client, Runnable reload, Consumer<String> installed) {
         Snapshot snapshot = library.scan();
@@ -225,7 +223,7 @@ public final class FontPicker {
             }
         });
     }
-    // Opens the font folder in the file manager; creates it first if missing.
+    // Opens the font folder, creating it first.
     public static void openFolder(Path folder) {
         try {
             Files.createDirectories(folder);

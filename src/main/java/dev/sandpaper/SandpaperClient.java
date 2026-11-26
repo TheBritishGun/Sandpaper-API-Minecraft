@@ -7,6 +7,8 @@ import dev.sandpaper.core.FrameBudget;
 import dev.sandpaper.core.Handle;
 import dev.sandpaper.core.JobSpec;
 import dev.sandpaper.core.Lane;
+import dev.sandpaper.core.MenuFrame;
+import dev.sandpaper.core.RenderCoreGuard;
 import dev.sandpaper.core.Priority;
 import dev.sandpaper.core.Scheduler;
 import dev.sandpaper.core.WorkPool;
@@ -19,10 +21,12 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,19 +39,21 @@ public final class SandpaperClient implements ClientModInitializer {
     private static final int RENDER_LANE_SILENT_TICKS = 40;
     private final Scheduler scheduler = Sandpaper.scheduler();
     private WorkPool workPool;
-    // Set before the pool can call back into it.
     private Handle applyResults;
     private FrameBudget renderBudget;
     private FrameBudget tickBudget;
+    // Menu pump runs unless the property turns it off.
+    private static final boolean MENU_PUMP_ENABLED =
+            !"off".equals(System.getProperty("sandpaper.menuPump", ""));
+    private final FrameBudget menuFrames = new FrameBudget(MenuFrame.TARGET_NANOS, 1.0, 0L, 0L);
+    // Time of the last menu pump.
+    private long lastMenuPumpNanos = MenuFrame.NO_PUMP_YET;
     private long tickStartNanos;
     private long tickPumpNanos;
-    // Client thread only, both where this is set and where it is read.
     private boolean renderLanePumpedSinceLastTick;
     private int renderLaneQuietTicks;
     private boolean renderLaneSilenceReported;
-    // Zero means unknown; pacedFramerate treats it the same as unset.
     private int refreshRateHz;
-    // The first frame polls.
     private int framesSinceRefreshRatePoll = REFRESH_RATE_POLL_FRAMES;
     private int lastFramerateLimit = -1;
     private int lastRefreshRate = -1;
@@ -55,8 +61,6 @@ public final class SandpaperClient implements ClientModInitializer {
     private double lastRenderShare = -1.0;
     private int lastRenderCeiling = -1;
     private int lastRenderFloor = -1;
-    // Ignores the file for budgets and threads; always runs on the shipped values.
-    // Only this class reads it.
     private static final SandpaperConfig SCHEDULING = new SandpaperConfig().normalise();
     private double lastTickShare = -1.0;
     private int lastTickCeiling = -1;
@@ -67,6 +71,7 @@ public final class SandpaperClient implements ClientModInitializer {
                 buildIdentity());
         Sandpaper.loadConfig(FabricLoader.getInstance().getConfigDir().resolve("sandpaper.json"));
         SandpaperConfigScreen.applyColours(Sandpaper.config());
+        RenderCoreGuard.install(RenderCoreGuard.forThisMachine(message -> LOGGER.warn(message)));
         SandpaperConfig config = SCHEDULING;
         workPool = config.workerThreads > 0
                 ? new WorkPool(config.workerThreads, config.queueCapacity)
@@ -75,10 +80,9 @@ public final class SandpaperClient implements ClientModInitializer {
         lastTickShare = config.tickShare;
         lastTickCeiling = config.tickCeilingMicros;
         lastTickFloor = config.floorMicros;
-        // The three zeros mean nothing is known yet.
         renderBudget = budgetFor(0, 0, 0, config);
         Sandpaper.install(workPool);
-        // Registers the settings keybind; calling this twice is not safe.
+        // Registers the settings keybind.
         SandpaperKeys.register();
         // Pauses itself when there is nothing to apply.
         applyResults = scheduler.register(
@@ -89,13 +93,11 @@ public final class SandpaperClient implements ClientModInitializer {
                 tick -> {
                     long deadline = System.nanoTime() + tick.remainingNanos();
                     int appliesLeft = SCHEDULING.applyPerTick;
-                    // Runs at least one slice; count and the clock both bound the burst.
                     do {
                         int slice = Math.min(APPLIES_PER_SLICE, appliesLeft);
                         appliesLeft -= slice;
                         workPool.drainCompleted(slice);
                     } while (appliesLeft > 0 && System.nanoTime() - deadline < 0L);
-                    // Sets paused before the second check, to not miss a result that just arrived.
                     if (!workPool.hasPending()) {
                         applyResults.setPaused(true);
                         if (workPool.hasPending()) {
@@ -103,7 +105,6 @@ public final class SandpaperClient implements ClientModInitializer {
                         }
                     }
                 });
-        // Must come after applyResults is set.
         workPool.wakeOnResult(this::resumeApplyResults);
         ClientTickEvents.START_CLIENT_TICK.register(this::onStartTick);
         ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
@@ -112,28 +113,27 @@ public final class SandpaperClient implements ClientModInitializer {
         HudElementRegistry.addFirst(
                 Identifier.fromNamespaceAndPath(Sandpaper.MOD_ID, "pump"),
                 this::onFrame);
+        ScreenEvents.AFTER_INIT.register((client, screen, width, height) ->
+                ScreenEvents.afterExtract(screen).register(this::onMenuFrame));
         SandpaperDebugHud.register(scheduler, workPool, this);
     }
-    // Runs on whichever thread queued a result or a drop callback.
     private void resumeApplyResults() {
         if (applyResults.isPaused()) {
             applyResults.setPaused(false);
         }
     }
     private void onStartTick(Minecraft client) {
-        // Read at the start of the tick, not reused from the end of the last one.
         tickStartNanos = System.nanoTime();
     }
     private void onEndTick(Minecraft client) {
         retargetTickIfSettingsChanged();
         long tickEndNanos = System.nanoTime();
         if (tickStartNanos != 0L) {
-            // Includes the prior pump's cost, closing the accounting loop.
             tickBudget.sample(tickEndNanos - tickStartNanos + tickPumpNanos);
         }
         scheduler.pump(Lane.TICK, tickBudget.budgetNanos());
         tickPumpNanos = System.nanoTime() - tickEndNanos;
-        // Watches for the RENDER lane going silent because the HUD is hidden.
+        // Counts ticks without a RENDER pump.
         if (client.level != null) {
             if (renderLanePumpedSinceLastTick) {
                 renderLaneQuietTicks = 0;
@@ -162,12 +162,32 @@ public final class SandpaperClient implements ClientModInitializer {
     private void onFrame(GuiGraphicsExtractor gfx, DeltaTracker delta) {
         Minecraft client = Minecraft.getInstance();
         retargetIfFramerateChanged(client);
+        RenderCoreGuard.sample();
         renderBudget.sample(client.getFrameTimeNs());
         scheduler.pump(Lane.RENDER, renderBudget.budgetNanos());
-        // The only place this flag is set true.
         renderLanePumpedSinceLastTick = true;
     }
-    // Rebuilds the render budget when the display or its settings change.
+    private void onMenuFrame(Screen screen, GuiGraphicsExtractor gfx, int mouseX, int mouseY, float delta) {
+        Minecraft client = Minecraft.getInstance();
+        if (!MenuFrame.shouldPump(client.level != null, MENU_PUMP_ENABLED)) {
+            return;
+        }
+        if (!MenuFrame.isNewFrame(System.nanoTime(), lastMenuPumpNanos)) {
+            return;
+        }
+        try {
+            RenderCoreGuard.sample();
+            menuFrames.sample(client.getFrameTimeNs());
+            SandpaperConfig config = SCHEDULING;
+            long floor = config.floorNanos();
+            long ceiling = Math.max(floor, config.renderCeilingNanos());
+            scheduler.pump(Lane.RENDER, MenuFrame.budgetNanos(menuFrames.smoothedFrameNanos(),
+                    config.renderShare, floor, ceiling));
+        } finally {
+            lastMenuPumpNanos = System.nanoTime();
+        }
+    }
+    // Rebuilds the render budget on setting changes.
     private void retargetIfFramerateChanged(Minecraft client) {
         Window window = client.getWindow();
         if (client.options == null || window == null) {
@@ -191,14 +211,13 @@ public final class SandpaperClient implements ClientModInitializer {
             lastRenderCeiling = config.renderCeilingMicros;
             renderBudget = budgetFor(pacedFramerate(limit, vsync, refreshRateHz),
                     limit, refreshRateHz, config);
-            // Reads floorMicros after budgetFor normalises it in place.
             lastRenderFloor = config.floorMicros;
         }
     }
     private static boolean isRealCap(int limit, int cutoff) {
         return limit > 0 && limit < cutoff;
     }
-    // The rate actually achievable, from the limit, vsync and the display refresh rate.
+    // Paced framerate from limit, vsync and refresh.
     private static int pacedFramerate(int limit, boolean vsync, int refreshRateHz) {
         if (refreshRateHz <= 0) {
             return limit;
@@ -233,11 +252,9 @@ public final class SandpaperClient implements ClientModInitializer {
             lastTickShare = config.tickShare;
             lastTickCeiling = config.tickCeilingMicros;
             tickBudget = tickBudgetFor(config);
-            // Reads floorMicros after tickBudgetFor normalises it in place.
             lastTickFloor = config.floorMicros;
         }
     }
-    // refreshRateHz is the raw value from the display panel.
     private static FrameBudget budgetFor(int pacedLimit, int limit, int refreshRateHz,
             SandpaperConfig config) {
         config.floorMicros = config.normalisedFloorMicros();

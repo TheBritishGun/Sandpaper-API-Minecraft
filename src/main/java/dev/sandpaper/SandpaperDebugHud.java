@@ -15,17 +15,14 @@ final class SandpaperDebugHud {
     private static final int LEFT = 4;
     private static final int LINE_HEIGHT = 10;
     private static final int BOTTOM_MARGIN = 14;
-    // Client thread only.
     private static final StringBuilder LINE = new StringBuilder(96);
     private SandpaperDebugHud() {
     }
     static void register(Scheduler scheduler, WorkPool pool, SandpaperClient client) {
-        // Client thread only (write and all reads).
         AtomicReference<Cadenced<List<String>>> lines = new AtomicReference<>();
         HudElementRegistry.addLast(
                 Identifier.fromNamespaceAndPath(Sandpaper.MOD_ID, "debug"),
                 (gfx, delta) -> {
-                    // Called by the game only while the HUD is actually drawing.
                     boolean shown = shown();
                     Cadenced<List<String>> cadenced = lines.get();
                     if (cadenced == null) {
@@ -60,10 +57,8 @@ final class SandpaperDebugHud {
                     latest.set(built);
                     return built;
                 },
-                // The name is the only identifier used if this job is dropped.
                 "sandpaper-debug-readout");
     }
-    // Caller must check shown() first; this method has no guard of its own.
     private static void draw(GuiGraphicsExtractor gfx, List<String> lines) {
         Minecraft client = Minecraft.getInstance();
         int bottom = client.getWindow().getGuiScaledHeight() - BOTTOM_MARGIN;
@@ -119,7 +114,6 @@ final class SandpaperDebugHud {
         String poolState = line.toString();
         return List.of(tickJobs, renderJobs, tickBudget, frameBudget, poolState);
     }
-    // +5_000 implements HALF_UP rounding; non-negative inputs only.
     private static void appendMillis(StringBuilder out, long nanos) {
         long hundredths = (nanos + 5_000L) / 10_000L;
         out.append(hundredths / 100L).append('.');

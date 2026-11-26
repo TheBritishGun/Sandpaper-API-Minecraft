@@ -1,11 +1,8 @@
 package dev.sandpaper.core;
 import java.util.Objects;
 public final class JobSpec {
-    // Jittered per entry on the deferrable road.
     public static final long DEFAULT_STARVATION_NANOS = 2_000_000_000L;
-    // Largest millis that fits in a long of nanoseconds.
     public static final long MAX_MILLIS = Long.MAX_VALUE / 1_000_000L;
-    // Sentinel for no escalation deadline.
     public static final long NO_DEADLINE = 0L;
     private final Lane lane;
     private final long periodPumps;
@@ -16,7 +13,6 @@ public final class JobSpec {
     private final long deadlineNanos;
     private final String label;
     private final boolean neverDrop;
-    // Who registered this job, for cancelAllFor.
     private final String owner;
     private JobSpec(Lane lane, long periodPumps, long periodNanos, Priority priority,
                     boolean mustRun, long starvationNanos, long deadlineNanos, String label,
@@ -45,7 +41,6 @@ public final class JobSpec {
     public static JobSpec everyPump(Lane lane) {
         return everyPumps(lane, 1);
     }
-    // Millis to nanos; refuses a value that would overflow.
     static long nanos(long millis, String what) {
         if (millis > MAX_MILLIS) {
             throw new IllegalArgumentException(what + " must be <= " + MAX_MILLIS
@@ -53,7 +48,6 @@ public final class JobSpec {
         }
         return millis * 1_000_000L;
     }
-    // Not read for a sliced job.
     public JobSpec withPriority(Priority p) {
         return new JobSpec(lane, periodPumps, periodNanos, p, mustRun, starvationNanos,
                 deadlineNanos, label, neverDrop, owner);
@@ -62,8 +56,6 @@ public final class JobSpec {
         return new JobSpec(lane, periodPumps, periodNanos, priority, true, starvationNanos,
                 deadlineNanos, label, neverDrop, owner);
     }
-    // Starvation deadline for queue-jumping; scaled 1.0 to 1.5 on deferrable, exact on sliced.
-    // Zero means escalate as soon as due; negative throws IllegalArgumentException.
     public JobSpec withStarvationMillis(long millis) {
         if (millis < 0) {
             throw new IllegalArgumentException("starvation millis must be >= 0, was " + millis);
@@ -75,13 +67,10 @@ public final class JobSpec {
         return new JobSpec(lane, periodPumps, periodNanos, priority, mustRun, starvationNanos,
                 deadlineNanos, l, neverDrop, owner);
     }
-    // Keeps this job on its lane no matter how often it throws.
     public JobSpec neverDrop() {
         return new JobSpec(lane, periodPumps, periodNanos, priority, mustRun, starvationNanos,
                 deadlineNanos, label, true, owner);
     }
-    // Names the mod or subsystem this job belongs to; omit for an unowned job.
-    // Throws IllegalArgumentException if o is null or blank.
     public JobSpec withOwner(String o) {
         if (o == null || o.isBlank()) {
             throw new IllegalArgumentException("owner must not be blank; omit withOwner "
@@ -90,8 +79,6 @@ public final class JobSpec {
         return new JobSpec(lane, periodPumps, periodNanos, priority, mustRun, starvationNanos,
                 deadlineNanos, label, neverDrop, o);
     }
-    // Max time since the last clean run before it runs outside budget; must exceed cadence.
-    // Throws IllegalArgumentException if millis is at or below cadence, or above MAX_MILLIS.
     public JobSpec withDeadlineMillis(long millis) {
         long floorMillis = timeBased() ? periodNanos / 1_000_000L : 0L;
         if (millis <= floorMillis) {

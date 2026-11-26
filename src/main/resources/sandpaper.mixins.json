@@ -6,7 +6,8 @@
   "client": [
     "FontAccessor",
     "MinecraftMixin",
-    "PackRepositoryAccessor"
+    "PackRepositoryAccessor",
+    "TrueTypeProviderMixin"
   ],
   "injectors": {
     "defaultRequire": 1

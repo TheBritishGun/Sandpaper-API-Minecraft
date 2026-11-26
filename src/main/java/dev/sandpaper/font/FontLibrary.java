@@ -54,10 +54,8 @@ public final class FontLibrary {
     private record Discovered(Path file, String fileName, Revision revision, Float autoSize) {
     }
     private final Path directory;
-    // Only a successful resolve overwrites this.
     private volatile Path directoryRealPath;
     private final Consumer<String> note;
-    // Immutable; always replaced whole, never mutated in place.
     private volatile Scan scan =
             new Scan(Collections.emptyMap(), List.of(), Collections.emptyMap());
     public FontLibrary(Path directory) {
@@ -218,7 +216,6 @@ public final class FontLibrary {
         }
         return start == end ? "font" : sb.substring(start, end);
     }
-    // Tracks ids used in this scan only, not the published map.
     private static String uniqueId(Set<String> taken, String base,
             Map<String, Integer> nextSuffix) {
         if (!taken.contains(base)) {
@@ -250,11 +247,9 @@ public final class FontLibrary {
     public Face face(String id) {
         return scan.byId().get(id);
     }
-    // Whether file resolves inside this library's folder (links and junctions resolved).
     public boolean contains(Path file) {
         return isWithin(directoryRealPath(), file);
     }
-    // Resolves and caches the folder's real path on first success.
     private Path directoryRealPath() {
         Path known = directoryRealPath;
         return known != null ? known : rememberRealDirectory(realPath(directory));
@@ -279,7 +274,6 @@ public final class FontLibrary {
         Path realFile = realPath(file);
         return directory != null && realFile != null && realFile.startsWith(directory);
     }
-    // The same resource ttfFile names, as a path instead of an id.
     public static String ttfPath(Face face) {
         return TTF_DIRECTORY + face.id() + TTF_SUFFIX;
     }
@@ -289,11 +283,9 @@ public final class FontLibrary {
         }
         return path.substring(TTF_DIRECTORY.length(), path.length() - TTF_SUFFIX.length());
     }
-    // Never include a font/ prefix here; the loader adds it, or the file is not found.
     public static String ttfFile(String namespace, Face face) {
         return namespace + ":" + face.id() + ".ttf";
     }
-    // Diagnostic only, not a filter; unreadable files read as true.
     public static boolean looksLikeTrueType(Path file) {
         Boolean sniffed = readTrueTypeSniff(file);
         return sniffed == null || sniffed.booleanValue();
@@ -309,7 +301,6 @@ public final class FontLibrary {
         }
         int sfnt = ((tag[0] & 0xFF) << 24) | ((tag[1] & 0xFF) << 16)
                 | ((tag[2] & 0xFF) << 8) | (tag[3] & 0xFF);
-        // 0x00010000, true and ttcf mark TrueType; OTTO (CFF) is refused.
         return sfnt == 0x00010000 || sfnt == 0x74727565 || sfnt == 0x74746366;
     }
     public static boolean knownTrueType(Path file) {
@@ -358,7 +349,6 @@ public final class FontLibrary {
     }
     private static final int MAX_SNIFFS = 512;
     private static final Map<Path, Sniff> SNIFFS = new LinkedHashMap<>();
-    // Provider order matters: ttf must precede fallback or fallback always wins.
     public static String definitionJson(String namespace, Face face, float size,
             float oversample, String fallback) {
         String reference = fallback == null || fallback.isBlank() ? "" : """

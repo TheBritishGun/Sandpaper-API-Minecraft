@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-// Recurring work: computed off the game thread, applied on it; at most one send outstanding.
+// Recurring off-thread compute, applied on the game thread.
 public final class Errand {
     private final WorkPool pool;
     // Empty string means unowned.
@@ -22,9 +22,7 @@ public final class Errand {
         this.pool = pool;
         this.owner = owner;
     }
-    // Registers recurring off-thread compute with on-game apply; cadence is an upper bound on send frequency.
-    // compute runs on a pool worker; its result goes to apply, which runs on the game thread.
-    // Throws NullPointerException if any argument is null.
+    // Registers recurring compute with its apply step.
     public static <T> Errand register(Scheduler scheduler, WorkPool pool, JobSpec spec,
                                       Supplier<T> compute, Consumer<T> apply) {
         Objects.requireNonNull(scheduler, "scheduler");
@@ -36,15 +34,12 @@ public final class Errand {
         errand.handle = scheduler.register(spec, tick -> errand.send(compute, apply));
         return errand;
     }
-    // Errand with no cadence; the caller drives sends from its own job; handle() returns null.
-    // Throws NullPointerException if pool is null.
+    // Errand with no cadence; handle() is null.
     public static Errand on(WorkPool pool) {
         Objects.requireNonNull(pool, "pool");
         return new Errand(pool, "");
     }
-    // Sends if none is out; call from the scheduler pumping thread.
-    // Returns true if the pool accepted the compute; false if already out or the pool refused.
-    // Throws NullPointerException if compute or apply is null.
+    // Sends unless one is already out.
     public <T> boolean send(Supplier<T> compute, Consumer<T> apply) {
         Objects.requireNonNull(compute, "compute");
         Objects.requireNonNull(apply, "apply");
@@ -98,7 +93,6 @@ public final class Errand {
         releaseIfDroppedUnrun();
         return out.get();
     }
-    // Null for an errand built by on().
     public Handle handle() {
         return handle;
     }
