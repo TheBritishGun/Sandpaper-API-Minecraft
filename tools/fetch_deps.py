@@ -16,11 +16,9 @@ UA = {"User-Agent": "landnav-fetch-deps/1.0"}
 WANT = ("jspecify", "guava", "gson", "commons", "fastutil", "joml", "icu4j",
         "netty", "slf4j", "authlib", "brigadier", "datafixerupper", "logging")
 
-# gson, slf4j and brigadier are required to compile and test. The rest are
-# Mojang-only: not required by this repo; the manifest declares them.
 
 
-# True when --recheck is passed: hash every cached jar instead of trusting its stamp.
+# Hash every cached jar when true.
 RECHECK = False
 
 def props(path):
@@ -187,7 +185,7 @@ def fetch(url, dst, sha1):
                      f"  got       {got}")
         os.replace(part, dst)
     finally:
-        # Removes the staging file if it still exists.
+        # Remove the staging file if present.
         try:
             os.remove(part)
         except OSError:
@@ -294,7 +292,7 @@ def main():
             continue
         fname = art["url"].rsplit("/", 1)[-1]
         managed.add(fname)
-        # The Maven coordinate: group:artifactId:version[:classifier].
+        # Split the Maven coordinate into parts.
         gav = lib.get("name", "").split(":")
         if len(gav) >= 2:
             kept.setdefault(gav[1], set()).add(fname)

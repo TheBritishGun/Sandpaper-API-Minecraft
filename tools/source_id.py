@@ -10,10 +10,10 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# The source roots that make up this digest.
+# Source roots hashed into the digest.
 DIGESTED = (("src", "main", "java"), ("src", "main", "resources"))
 
-# The jar entry sandpaper/build.py writes and landnav/build.py reads.
+# Jar entry name for the build record.
 RECORD = "sandpaper-build.json"
 
 

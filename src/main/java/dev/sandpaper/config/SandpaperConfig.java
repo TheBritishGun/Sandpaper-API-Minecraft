@@ -18,10 +18,8 @@ public final class SandpaperConfig {
     public static final String DEFAULT_TREATMENT = "aero";
     public static final String LIQUID_TREATMENT = "liquid";
     public static final String CLEAR_TREATMENT = "clear";
-    // Append only: a picker returns an index into this list.
     public static final List<String> TREATMENTS =
             List.of(DEFAULT_TREATMENT, LIQUID_TREATMENT, CLEAR_TREATMENT);
-    // Shared by both colour pickers; append only, same reason as TREATMENTS.
     public static final String DEFAULT_COLOUR = "default";
     public static final List<String> COLOURS = List.of(DEFAULT_COLOUR, "blue", "red", "green",
             "purple", "amber", "royal_purple", "pastel_pink", "custom");
@@ -36,8 +34,8 @@ public final class SandpaperConfig {
     public int tickCeilingMicros = 3_000;
     public int applyPerTick = 8;
     public boolean debugReadout = false;
-    // Adds detail only; never silences errors.
     public boolean verboseLogging = false;
+    public boolean sectionThemes = false;
     public String treatment = DEFAULT_TREATMENT;
     public String themeColour = DEFAULT_COLOUR;
     public String themeCustom = "";
@@ -48,9 +46,7 @@ public final class SandpaperConfig {
     public int fontSizePercent = 100;
     public float fontOversample = DEFAULT_FONT_OVERSAMPLE;
     public transient List<String> corrections = List.of();
-    // Why the load failed; null on success.
     public transient String unreadable;
-    // Ceiling for a manual override; normalise() clamps to this.
     public static final int MAX_WORKER_THREADS = 32;
     public static final int MIN_WORKER_THREADS = 0;
     public static boolean overrideCeilingReachesAutoPick(int maxWorkerThreads, int autoPickCap) {
@@ -89,7 +85,6 @@ public final class SandpaperConfig {
         }
         return value != null && TREATMENTS.contains(value) ? value : DEFAULT_TREATMENT;
     }
-    // An id off the list becomes default; the paired custom text is untouched.
     public static String normaliseColour(String value) {
         return value != null && COLOURS.contains(value) ? value : DEFAULT_COLOUR;
     }
@@ -157,6 +152,7 @@ public final class SandpaperConfig {
         this.debugReadout = other.debugReadout;
         this.verboseLogging = other.verboseLogging;
         this.treatment = other.treatment;
+        this.sectionThemes = other.sectionThemes;
         this.themeColour = other.themeColour;
         this.themeCustom = other.themeCustom;
         this.accentColour = other.accentColour;
@@ -277,7 +273,6 @@ public final class SandpaperConfig {
             Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING);
         }
     }
-    // Warms the Gson write path on the client thread at boot; never throws.
     public static void warmSerializer() {
         try {
             GSON.toJson(new SandpaperConfig(), Writer.nullWriter());

@@ -21,14 +21,14 @@ BUILD = os.path.join(ROOT, "build")
 CLASSES = os.path.join(BUILD, "classes")
 RESOURCES = os.path.join(BUILD, "resources")
 
-# Packages shipped in the engine jar, not the mod jar.
+# Package prefixes compiled into the engine jar.
 ENGINE_PACKAGES = ("dev/sandpaper/core/",)
 ENGINE_ROOT_CLASSES = ()
 
-# Types the engine jar must not name.
+# Package names the engine jar must not contain.
 ENGINE_FORBIDDEN = (b"net/minecraft", b"org/slf4j", b"com/google/gson")
 
-# The engine jar's own directory, apart from the mod jar.
+# Output directory for the engine jar.
 ENGINE_DIR = os.path.join(BUILD, "engine")
 
 
@@ -139,8 +139,7 @@ def write_engine_jar(ident, jdk):
         sys.exit("No engine classes under %s. ENGINE_PACKAGES may be wrong." % CLASSES)
     refuse_third_party(found)
     os.makedirs(ENGINE_DIR, exist_ok=True)
-    # The engine jar name carries no minecraft version.
-    out = os.path.join(ENGINE_DIR, "%s-engine-%s.jar" % (ident["mod_id"],
+    out =os.path.join(ENGINE_DIR, "%s-engine-%s.jar" % (ident["mod_id"],
                                                          ident["mod_version"]))
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for full, rel in found:
@@ -165,7 +164,7 @@ def main():
     jdk = find_jdk(args.jdk)
     p = props(os.path.join(ROOT, "gradle.properties"))
 
-    # Sandpaper's identity, computed by tools/source_id.py.
+    # Compute the build identity.
     ident = source_id.identity(ROOT)
     mod_id = ident["mod_id"]
     version = f"{ident['mod_version']}+{ident['minecraft_version']}"
@@ -228,7 +227,6 @@ def main():
                 for fn in fs:
                     full = os.path.join(d, fn)
                     z.write(full, os.path.relpath(full, base).replace("\\", "/"))
-        # Written straight into the archive, not staged under resources/.
         z.writestr(source_id.RECORD,
                    json.dumps(ident, indent=2, sort_keys=True) + chr(10))
     print(f"source   : {ident['source_sha256']}")

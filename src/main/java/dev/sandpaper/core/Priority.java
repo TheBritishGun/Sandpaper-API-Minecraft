@@ -1,5 +1,4 @@
 package dev.sandpaper.core;
-// Ordering weight among deferrable jobs, higher drains first, starves later.
 public enum Priority {
     LOW(0),
     NORMAL(1),

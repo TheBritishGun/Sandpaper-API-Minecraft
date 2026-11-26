@@ -6,7 +6,6 @@ public final class Sandpaper {
     private static final org.slf4j.Logger LOGGER =
             org.slf4j.LoggerFactory.getLogger(MOD_ID);
     static {
-        // Sink must be installed before any job exists.
         dev.sandpaper.core.CoreLog.install(
                 (message, thrown) -> LOGGER.error(message, thrown));
         dev.sandpaper.core.CoreLog.installVerbose(LOGGER::info);
@@ -39,9 +38,7 @@ public final class Sandpaper {
     public static dev.sandpaper.config.SandpaperConfig config() {
         return config;
     }
-    // Writes settings from the client thread; false means they are lost at next start.
     public static boolean save() {
-        // Must run before the path check.
         dev.sandpaper.core.CoreLog.setVerbose(config.verboseLogging);
         java.nio.file.Path path = configPath;
         if (path == null) {

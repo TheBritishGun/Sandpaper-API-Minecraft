@@ -63,6 +63,8 @@ _What it is for:_ Sandpaper's static entry point: the shared Scheduler and WorkP
 
 _What it is for:_ The per-run snapshot sandpaper's scheduler hands a job on every entry.
 
+Every `Job` or `SlicedJob` invocation receives an independent, immutable `Tick` that the callback may keep.
+
 | Signature | What it is for |
 |---|---|
 | `boolean first()` | True until this job completes a run. |
@@ -117,15 +119,15 @@ _What it is for:_ Immutable, chainable description of how one job should be sche
 
 `dev.sandpaper.core.Background`, a class. Source: `src/main/java/dev/sandpaper/core/Background.java`.
 
-_What it is for:_ How background work is given threads: sized down from available processors, lowered priority, daemon.
+_What it is for:_ How background work is given threads: one thread for every available processor except one (the render thread's), normal priority, daemon.
 
 | Signature | What it is for |
 |---|---|
-| `static T call(Callable<T> work)` | Runs work on the calling thread at lowered priority; restores prior priority after. |
-| `static Thread thread(Runnable work, String name)` | Builds a daemon thread with name at lowered priority; caller starts it. |
-| `static ThreadFactory factory(String prefix)` | Factory building threads numbered from prefix, each at lowered priority. |
+| `static T call(Callable<T> work)` | Runs work on the calling thread at the background priority (normal); restores prior priority after. |
+| `static Thread thread(Runnable work, String name)` | Builds a daemon thread with name at normal priority; caller starts it. |
+| `static ThreadFactory factory(String prefix)` | Factory building threads numbered from prefix, each at normal priority. |
 | `static int threads()` | How many threads background work may have. |
-| `static void run(Runnable work)` | Runs work on the current thread at lowered priority; restores prior priority after. |
+| `static void run(Runnable work)` | Runs work on the current thread at the background priority (normal); restores prior priority after. |
 
 ## `Step`
 
@@ -253,10 +255,15 @@ _What it is for:_ The interface a mod implements to add its own pages to sandpap
 
 _What it is for:_ Runs registered jobs against one lane's per-pump time budget.
 
+Start the JVM with `-Dsandpaper.tickValues=true` to pass the five values directly. Scheduler reads the switch once at class initialization. It is off by default. With the switch off, each values registration creates one adapter that reads the five components from a Tick.
+
 | Signature | What it is for |
 |---|---|
 | `Handle register(JobSpec spec, Job job)` | Registers periodic work and returns a Handle that controls it. |
 | `Handle registerSliced(JobSpec spec, SlicedJob job)` | Registers work drained from budget periodic jobs leave over. |
+| `Handle registerValues(JobSpec spec, ValuesJob job)` | Registers periodic work that receives the five Tick components by value. Use the pumping thread. |
+| `Handle registerSlicedValues(JobSpec spec, ValuesStep step)` | Registers sliced work that receives the five Tick components by value and returns a Step. Use the pumping thread. |
+| `long tickValuesEngaged()` | Counts actual direct values callbacks across all lanes. Read from the pumping thread. The count is zero with the switch off. |
 | `LaneStats stats(Lane lane)` | Snapshot of one lane's lifetime totals. |
 | `String label()` | This job's label, from JobSpec.withLabel or the default. |
 | `boolean isCancelled()` | Whether this job has been cancelled. |
@@ -282,11 +289,34 @@ _What it is for:_ Runs registered jobs against one lane's per-pump time budget.
 | `void setPeriodMillis(long millis)` | Retimes an everyMillis job in place. |
 | `void setPeriodPumps(long pumps)` | Retimes an everyPumps job in place. |
 
+## `ValuesJob`
+
+`dev.sandpaper.core.ValuesJob`, a functional interface. Source: `src/main/java/dev/sandpaper/core/ValuesJob.java`.
+
+_What it is for:_ Receives a periodic run's five Tick components by value through `Scheduler.registerValues`.
+
+| Signature | What it is for |
+|---|---|
+|---|---|
+| `void run(long sinceLastRunNanos, long pumpsSinceLastRun, boolean catchUp, long remainingNanos, long runIndex)` | Runs once with the timing, budget and completed-run count at entry. |
+
+## `ValuesStep`
+
+`dev.sandpaper.core.ValuesStep`, a functional interface. Source: `src/main/java/dev/sandpaper/core/ValuesStep.java`.
+
+_What it is for:_ Receives a sliced step's five Tick components by value through `Scheduler.registerSlicedValues`.
+
+| Signature | What it is for |
+|---|---|
+| `Step step(long sinceLastRunNanos, long pumpsSinceLastRun, boolean catchUp, long remainingNanos, long runIndex)` | Runs one step with the timing, budget and completed-run count at entry and returns DONE, MORE or YIELD. |
+
 ## `Cadenced`
 
 `dev.sandpaper.core.Cadenced`, a class. Source: `src/main/java/dev/sandpaper/core/Cadenced.java`.
 
 _What it is for:_ A value recomputed on a cadence and cached for cheap reads elsewhere.
+
+The status pulse uses `Scheduler.registerValues` and receives its Tick components by value.
 
 | Signature | What it is for |
 |---|---|

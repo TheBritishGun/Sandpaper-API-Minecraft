@@ -12,15 +12,12 @@ public final class AeroTheme {
     public static final int ACCENT = 0xFF46DCC6;
     public static final int ACCENT_DEEP = 0xFF12907F;
     public static final int ACCENT_LIGHT = 0xFFB6FBEF;
-    // Alpha stays about 0.55 to 0.75
     public static final int GLASS_TOP = 0xA61B333C;
     public static final int GLASS_BOTTOM = 0xB80C171D;
     public static final int WELL_TOP = 0x8C050C10;
     public static final int WELL_BOTTOM = 0x6E0A171D;
-    // Pixels from the top edge where the gradient becomes constant
     private static final int TINT_SPAN = 120;
     private static final int GLOSS_BAND = 22;
-    // RULE marks a group name; RULE_STRONG marks a section break
     public static final int RULE = 0x2E8FD6DE;
     public static final int RULE_STRONG = 0x478FD6DE;
     public static final int EDGE_LIGHT = 0x59BCF0FF;
@@ -28,28 +25,22 @@ public final class AeroTheme {
     public static final int GLOW = 0x2E9FE8FA;
     public static final int GLOW_INVALID = 0x3DFF6A50;
     public static final int SPECULAR = 0x3DE4FDFF;
-    // Stays lighter than GLASS_TOP and GLASS_BOTTOM
     public static final int LIQUID_TOP = 0x7A000000;
     public static final int LIQUID_BOTTOM = 0x8C000000;
     public static final int LIQUID_WELL_TOP = 0x6B000000;
     public static final int LIQUID_WELL_BOTTOM = 0x52000000;
-    // Flat: the midpoint of the LIQUID pair, kept as its own constants
     public static final int CLEAR_TOP = 0x83000000;
     public static final int CLEAR_BOTTOM = 0x83000000;
     public static final int CLEAR_WELL_TOP = 0x5F000000;
     public static final int CLEAR_WELL_BOTTOM = 0x5F000000;
-    // The one edge colour Clear keeps; same weight on all four sides
     public static final int CLEAR_EDGE = 0x3DFFFFFF;
     public static final int RIM_LIGHT = 0x8CE8FEFF;
     public static final int RIM_DARK = 0x9E03070A;
-    // Must stay brighter than GLOW and fall off over more rings than it
     public static final int LENS = 0x38CFF2FF;
-    // Must stay weaker than SPECULAR
     public static final int SHEEN = 0x2ADFF8FF;
     public static final int RADIUS_PANEL = 3;
     public static final int RADIUS_ROW = 2;
     public static final int RADIUS_GLASS = 6;
-    // Clear's own radius, separate from RADIUS_GLASS
     public static final int RADIUS_CLEAR = 6;
     private static final int[] R0 = {};
     private static final int[] R1 = {1};
@@ -65,7 +56,6 @@ public final class AeroTheme {
             default -> radius <= 0 ? R0 : R4;
         };
     }
-    // R and S tables sample |x/r|^n+|y/r|^n=1 at each row's top, floored; n=2 for R, n=3 for S.
     private static final int[] S4 = {4, 1, 1, 1};
     private static final int[] S5 = {5, 2, 1, 1, 1};
     private static final int[] S6 = {6, 2, 1, 1, 1, 1};
@@ -115,12 +105,10 @@ public final class AeroTheme {
     private static float lane(int argb, int shift) {
         return (argb >>> shift) & 0xFF;
     }
-    // Only the corner rows are inset; between them is a gradient, then a fill past the tint span
     public static void rounded(AeroSurface s, int x, int y, int w, int h,
             int radius, int top, int bottom) {
         roundedWith(s, insets(radius), x, y, w, h, top, bottom);
     }
-    // Same as rounded but takes a caller-chosen corner table instead of a radius
     public static void roundedWith(AeroSurface s, int[] table, int x, int y, int w, int h,
             int top, int bottom) {
         if (w <= 0 || h <= 0) {
@@ -209,7 +197,6 @@ public final class AeroTheme {
             int light, int dark) {
         lippedWith(s, insets(radius), x, y, w, h, light, dark);
     }
-    // The table must match the shape's own corner table
     public static void lippedWith(AeroSurface s, int[] table, int x, int y, int w, int h,
             int light, int dark) {
         if (w <= 0 || h <= 0) {
@@ -219,18 +206,15 @@ public final class AeroTheme {
         s.fill(x + in, y, x + w - in, y + 1, light);
         s.fill(x + in, y + h - 1, x + w - in, y + h, dark);
     }
-    // Clamps to half the width; a short table falls back instead of throwing
     private static int cornerInset(int[] table, int index, int fallback, int w) {
         return Math.min(index < table.length ? table[index] : fallback, w / 2);
     }
-    // A one-pixel outline following the shape's own corner table, the same weight on every side
     public static void hairlineWith(AeroSurface s, int[] table, int x, int y, int w, int h,
             int argb) {
         if (w <= 0 || h <= 0) {
             return;
         }
         int corner = Math.min(table.length, h / 2);
-        // The corner inset is 0 when corner is 0, matching flatWith's plain rectangle
         int in = corner > 0 ? cornerInset(table, 0, 0, w) : 0;
         s.fill(x + in, y, x + w - in, y + 1, argb);
         if (h > 1) {
@@ -278,7 +262,6 @@ public final class AeroTheme {
         s.fill(x, first, x + 1, last, argb);
         s.fill(x + w - 1, first, x + w, last, argb);
     }
-    // A block of rows that stroke the same two segments
     private static void hairlineRows(AeroSurface s, int x, int y, int rows, int w, int inset,
             int stop, int argb) {
         if (w - stop <= stop) {
@@ -288,7 +271,6 @@ public final class AeroTheme {
         s.fill(x + inset, y, x + stop, y + rows, argb);
         s.fill(x + w - stop, y, x + w - inset, y + rows, argb);
     }
-    // Call at most once per surface
     public static void gloss(AeroSurface s, int x, int y, int w, int h, float strength) {
         if (w <= 2 || h <= 4) {
             return;
@@ -301,7 +283,6 @@ public final class AeroTheme {
         s.gradient(x + 1, y + 1, x + w - 1, third, peak, fade);
         s.gradient(x + 1, third, x + w - 1, mid, fade, specular & 0x00FFFFFF);
     }
-    // Draws three inset rings at falling alpha
     public static void innerGlow(AeroSurface s, int x, int y, int w, int h, float strength) {
         innerGlow(s, x, y, w, h, strength, colours().glow);
     }
@@ -327,7 +308,6 @@ public final class AeroTheme {
         }
         ring(s, x, y, w, h, 2, a2);
     }
-    // Returns false when the inset rectangle has collapsed to nothing worth drawing
     private static boolean ring(AeroSurface s, int x, int y, int w, int h, int i,
             int alpha) {
         int gx = x + i;
@@ -347,10 +327,8 @@ public final class AeroTheme {
     private static final int RIM_REACH = 55;
     private static final float RIM_INNER = 0.38f;
     private static final float RIM_RUN = 0.9f;
-    // Ring count from the border inward
     private static final int LENS_BAND = 5;
     private static final int SHEEN_BAND = 8;
-    // Draws the top-left highlight rim inset by the squircle table, not the plain corner table
     public static void specularRim(AeroSurface s, int x, int y, int w, int h,
             int radius, float strength) {
         if (w <= 4 || h <= 4) {
@@ -365,7 +343,6 @@ public final class AeroTheme {
         }
         rim(s, x, y, w, h, table, a0, a1, run, true);
     }
-    // Draws the bottom-right shadow rim inset by the squircle table, matching specularRim
     public static void rimShadow(AeroSurface s, int x, int y, int w, int h,
             int radius, float strength) {
         if (w <= 4 || h <= 4) {
@@ -380,7 +357,6 @@ public final class AeroTheme {
         }
         rim(s, x, y, w, h, table, a0, a1, run, false);
     }
-    // downward true draws the border row at y and runs down; false draws at y+h-1 and runs up
     private static void rim(AeroSurface s, int x, int y, int w, int h, int[] table,
             float strength, int colour, boolean downward) {
         int a0 = scaleAlpha(colour, strength);
@@ -402,7 +378,6 @@ public final class AeroTheme {
         s.fill(x + in, row0, x + w - in, row0 + 1, a0);
         s.fill(x + in1, row1, x + w - in1, row1 + 1, a1);
     }
-    // h is the full shape height, not the run length; downward picks top-down or bottom-up
     private static void rimRun(AeroSurface s, int x, int top, int h, float strength,
             int colour, boolean downward) {
         int reach = rimRunReach(h);
@@ -452,7 +427,6 @@ public final class AeroTheme {
     private static int rimRunReach(int h) {
         return Math.max(2, Math.min(h - 4, h * RIM_REACH / 100));
     }
-    // Draws a lensing band starting one pixel inside the border
     public static void edgeLens(AeroSurface s, int x, int y, int w, int h, float strength) {
         for (int i = 1; i <= LENS_BAND; i++) {
             int a = edgeLensAlpha(strength, i);
@@ -493,7 +467,6 @@ public final class AeroTheme {
             ring(s, x, y, w, h, 5, a5);
         }
     }
-    // Covers at most a fifth of the height near the bottom; use instead of gloss, not with it
     public static void sheen(AeroSurface s, int x, int y, int w, int h, float strength) {
         if (w <= 2 || h <= 4) {
             return;
@@ -526,26 +499,19 @@ public final class AeroTheme {
     private static final int GLASS_RIM_DARK_1 = scaleAlpha(RIM_DARK, RIM_INNER);
     private static final int[] GLASS_RIM_DARK_RUN = rimRunAlphas(RIM_DARK);
     private static final int[] GLASS_PANEL_RIM_TABLE = squircle(RADIUS_GLASS);
-    // Clear's own table, kept separate from RADIUS_GLASS's
     private static final int[] CLEAR_PANEL_TABLE = squircle(RADIUS_CLEAR);
     private static final int GLASS_WELL_RIM_LIGHT_45 = scaleAlpha(RIM_LIGHT, 0.45f);
 
-    // Runtime palette: a THEME colour and an ACCENT colour
-    // Compiles against an empty classpath; names no Minecraft or config type
-
-    // Means Default for either useColours input: keep the shipped shade for that half
     public static final int SHIPPED_COLOUR = -1;
     private static final int SHIPPED_ROW_HOVER = 0x59AEEFFF;
     private static final int ROW_HOVER_BASE_RGB = 0xAEEFFF;
     private static final double LIGHT_LIGHTNESS_THRESHOLD = 0.75;
     private static final double LIGHT_ACCENT_FLOOR = 0.35;
-    // The light look's glass and wells draw at a fixed, stronger alpha
     private static final int STRONGER_PANEL_GLASS_TOP_A = 0xD8;
     private static final int STRONGER_PANEL_GLASS_BOTTOM_A = 0xE0;
     private static final int STRONGER_PANEL_WELL_TOP_A = 0xC8;
     private static final int STRONGER_PANEL_WELL_BOTTOM_A = 0xB4;
 
-    // Every colour AeroPainter and AeroTheme's own AERO paint methods read, immutable
     public static final class Palette {
         public final int text;
         public final int textDim;
@@ -571,7 +537,6 @@ public final class AeroTheme {
         public final int glowInvalid;
         public final int specular;
         public final int rowHover;
-        // Derived from glow the same way panel() derives them; must follow it
         public final int panelGlow0;
         public final int panelGlow1;
         public final int panelGlow2;
@@ -610,7 +575,6 @@ public final class AeroTheme {
             this.panelGlow2 = scaleAlpha(glow, 1.0f * innerGlowK(2));
         }
 
-        // Today's constants, exactly; what an untouched install and Default/Default both draw
         public static final Palette SHIPPED = new Palette(TEXT, TEXT_DIM, TEXT_OFF, TEXT_HEAD,
                 VALUE, VALUE_CHANGED, VALUE_INVALID, ACCENT, ACCENT_DEEP, ACCENT_LIGHT,
                 GLASS_TOP, GLASS_BOTTOM, WELL_TOP, WELL_BOTTOM, GLASS_TOP, GLASS_BOTTOM, RULE,
@@ -619,10 +583,8 @@ public final class AeroTheme {
     }
 
     private static volatile Palette aeroPalette = Palette.SHIPPED;
-    // Liquid Glass and Clear: black film, no tint; only the accent follows the pick
     private static volatile Palette filmPalette = Palette.SHIPPED;
 
-    // Builds and publishes both palettes; themeRgb and accentRgb are RGB, any alpha ignored
     public static void useColours(int themeRgb, int accentRgb) {
         int theme = themeRgb == SHIPPED_COLOUR ? SHIPPED_COLOUR : rgbOf(themeRgb);
         int accent = accentRgb == SHIPPED_COLOUR ? SHIPPED_COLOUR : rgbOf(accentRgb);
@@ -630,12 +592,10 @@ public final class AeroTheme {
         filmPalette = darkPalette(SHIPPED_COLOUR, accent);
     }
 
-    // The AERO palette; what panel(), well() and AeroPainter draw the Aero treatment with
     public static Palette colours() {
         return aeroPalette;
     }
 
-    // AERO for AERO or null (omitting a treatment keeps the Aero look); FILM for the other two
     public static Palette colours(Treatment t) {
         return t == Treatment.LIQUID || t == Treatment.CLEAR ? filmPalette : aeroPalette;
     }
@@ -649,7 +609,6 @@ public final class AeroTheme {
                 : lightPalette(theme, accent);
     }
 
-    // Keeps a picked colour from turning vivid on a shade nearer either end than the pick is
     private static Palette darkPalette(int theme, int accent) {
         int glassTop;
         int glassBottom;
@@ -668,12 +627,10 @@ public final class AeroTheme {
             int cr = redOf(theme);
             int cg = greenOf(theme);
             int cb = blueOf(theme);
-            // 50/50 of the shipped shade and the capped hue swap, round-half-up; alpha unchanged
             glassTop = formulaTCArgb(cr, cg, cb, GLASS_TOP);
             glassBottom = formulaTCArgb(cr, cg, cb, GLASS_BOTTOM);
             wellTop = formulaTCArgb(cr, cg, cb, WELL_TOP);
             wellBottom = formulaTCArgb(cr, cg, cb, WELL_BOTTOM);
-            // The capped hue swap of GLASS_TOP/GLASS_BOTTOM; button glass uses that same shipped pair
             buttonTop = formulaTAArgb(cr, cg, cb, GLASS_TOP);
             buttonBottom = formulaTAArgb(cr, cg, cb, GLASS_BOTTOM);
         }
@@ -713,7 +670,6 @@ public final class AeroTheme {
                 EDGE_DARK, glow, GLOW_INVALID, SPECULAR, SHIPPED_ROW_HOVER);
     }
 
-    // The look a theme colour lighter than LIGHT_LIGHTNESS_THRESHOLD gets
     private static Palette lightPalette(int theme, int accent) {
         double th = hueOf(theme);
         double ts = satOf(theme);
@@ -734,7 +690,6 @@ public final class AeroTheme {
                 shade(th, wellTopLight, ts * room(wellTopLight) * 0.5));
         int wellBottom = argb(STRONGER_PANEL_WELL_BOTTOM_A,
                 shade(th, wellBottomLight, ts * room(wellBottomLight) * 0.5));
-        // Button glass uses the theme's full saturation; panels and wells above use half
         int buttonTop = argb(STRONGER_PANEL_GLASS_TOP_A, hls01ToRgb255(th, glassTopLight, ts));
         int buttonBottom = argb(STRONGER_PANEL_GLASS_BOTTOM_A,
                 hls01ToRgb255(th, glassBottomLight, ts));
@@ -756,11 +711,9 @@ public final class AeroTheme {
         int accentDeep = mirroredShade(ACCENT_DEEP, ah, ac);
         int accentLight = mirroredShade(ACCENT_LIGHT, ah, ac);
 
-        // Not mirrored and not floored by LIGHT_ACCENT_FLOOR, unlike the values above it
         int edgeLight = argb(alphaOf(EDGE_LIGHT), shade(ah, lightnessOf(EDGE_LIGHT),
                 chromaOf(accentRgb)));
 
-        // Row hover darkens here, where the dark look's version lightens
         int rowHover = argb(0x59, shade(ah, 1.0 - lightnessOf(ROW_HOVER_BASE_RGB), ac));
 
         return new Palette(text, textDim, textOff, textHead, value, valueChanged, valueInvalid,
@@ -792,7 +745,6 @@ public final class AeroTheme {
         return argb(alphaOf(shippedArgb), rr, gg, bb);
     }
 
-    // source keeps its own hue; target's lightness; saturation capped by source's own chroma
     private static int[] hueSwap(int sr, int sg, int sb, int tr, int tg, int tb) {
         double[] shls = rgbToHls01(sr, sg, sb);
         double[] thls = rgbToHls01(tr, tg, tb);
@@ -806,7 +758,6 @@ public final class AeroTheme {
         return 1.0 - Math.abs(2.0 * light - 1.0);
     }
 
-    // hue and light direct; colourAmount divided by room(light) and capped at 1, as a saturation
     private static int[] shade(double hue, double light, double colourAmount) {
         double rm = room(light);
         double s = rm <= 0.0 ? 0.0 : Math.min(1.0, colourAmount / rm);
@@ -829,7 +780,6 @@ public final class AeroTheme {
         return chroma01(redOf(argbValue), greenOf(argbValue), blueOf(argbValue));
     }
 
-    // This operation order must be kept; reordering changes the result
     private static double chroma01(int r255, int g255, int b255) {
         double r = r255 / 255.0;
         double g = g255 / 255.0;
@@ -869,8 +819,6 @@ public final class AeroTheme {
         return (alpha << 24) | (rgb24 & 0xFFFFFF);
     }
 
-    // Result is always in [0, 1), even for a negative input
-
     private static final double ONE_THIRD = 1.0 / 3.0;
     private static final double ONE_SIXTH = 1.0 / 6.0;
     private static final double TWO_THIRD = 2.0 / 3.0;
@@ -900,7 +848,6 @@ public final class AeroTheme {
         };
     }
 
-    // Returns {h, l, s}, each 0 to 1
     private static double[] rgbToHls(double r, double g, double b) {
         double maxc = Math.max(r, Math.max(g, b));
         double minc = Math.min(r, Math.min(g, b));
@@ -926,7 +873,6 @@ public final class AeroTheme {
         return new double[] {h, l, s};
     }
 
-    // Returns {r, g, b}, each 0 to 1
     private static double[] hlsToRgb(double h, double l, double s) {
         if (s == 0.0) {
             return new double[] {l, l, l};
@@ -961,23 +907,19 @@ public final class AeroTheme {
         lipped(s, x, y, w, h, RADIUS_PANEL, p.edgeLight, p.edgeDark);
         gloss(s, x, y, w, h, 1.0f);
     }
-    // Dark top, light bottom; no gloss, unlike panel
     public static void well(AeroSurface s, int x, int y, int w, int h) {
         Palette p = colours();
         rounded(s, x, y, w, h, RADIUS_ROW, p.wellTop, p.wellBottom);
         lipped(s, x, y, w, h, RADIUS_ROW, p.edgeDark, scaleAlpha(p.edgeLight, 0.5f));
     }
-    // Selects Aero, Liquid Glass or Clear; omitting a treatment keeps the original Aero look
     public enum Treatment {
         AERO,
         LIQUID,
         CLEAR
     }
-    // True for a treatment whose material only reads as itself over a blurred backdrop
     public static boolean needsBlurredBackdrop(Treatment treatment) {
         return treatment == Treatment.LIQUID || treatment == Treatment.CLEAR;
     }
-    // Draws body, lensing, sheen, then both rims last
     public static void glassPanel(AeroSurface s, int x, int y, int w, int h) {
         roundedWith(s, GLASS_PANEL_RIM_TABLE, x, y, w, h, LIQUID_TOP, LIQUID_BOTTOM);
         edgeLens(s, x, y, w, h, GLASS_PANEL_LENS_1, GLASS_PANEL_LENS_2, GLASS_PANEL_LENS_3,
@@ -995,7 +937,6 @@ public final class AeroTheme {
         specularRim(s, x, y, w, h, RADIUS_GLASS, strength);
         rimShadow(s, x, y, w, h, RADIUS_GLASS, strength);
     }
-    // Draws a sunken Liquid Glass field: dark rim on top, light on bottom, no sheen
     public static void glassWell(AeroSurface s, int x, int y, int w, int h) {
         int radius = Math.min(RADIUS_GLASS, Math.max(1, h / 3));
         int[] table = squircle(radius);
@@ -1011,17 +952,14 @@ public final class AeroTheme {
         edgeLens(s, x, y, w, h, strength * WELL_LENS);
         lippedWith(s, table, x, y, w, h, RIM_DARK, GLASS_WELL_RIM_LIGHT_45);
     }
-    // One flat film and one hairline; no gradient, lensing, sheen, or rims
     public static void clearPanel(AeroSurface s, int x, int y, int w, int h) {
         roundedWith(s, CLEAR_PANEL_TABLE, x, y, w, h, CLEAR_TOP, CLEAR_BOTTOM);
         hairlineWith(s, CLEAR_PANEL_TABLE, x, y, w, h, CLEAR_EDGE);
     }
-    // Strength moves the edge only
     public static void clearPanel(AeroSurface s, int x, int y, int w, int h, float strength) {
         roundedWith(s, CLEAR_PANEL_TABLE, x, y, w, h, CLEAR_TOP, CLEAR_BOTTOM);
         hairlineWith(s, CLEAR_PANEL_TABLE, x, y, w, h, scaleAlpha(CLEAR_EDGE, strength));
     }
-    // A sunken Clear field: the same edge all the way round, sunk by a darker film
     public static void clearWell(AeroSurface s, int x, int y, int w, int h) {
         int[] table = squircle(clearWellRadius(h));
         roundedWith(s, table, x, y, w, h, CLEAR_WELL_TOP, CLEAR_WELL_BOTTOM);
@@ -1032,7 +970,6 @@ public final class AeroTheme {
         roundedWith(s, table, x, y, w, h, CLEAR_WELL_TOP, CLEAR_WELL_BOTTOM);
         hairlineWith(s, table, x, y, w, h, scaleAlpha(CLEAR_EDGE, strength));
     }
-    // The height picks the radius; body and edge share that table
     private static int clearWellRadius(int h) {
         return Math.min(RADIUS_CLEAR, Math.max(1, h / 3));
     }
@@ -1090,7 +1027,6 @@ public final class AeroTheme {
             panel(s, x, y, w, h);
         }
     }
-    // Only this may advance a blurred stratum per frame; call it before reading surface size
     public static void backdrop(AeroSurface.Backdrop s) {
         s.beginBlurredStratum();
         int w = s.width();

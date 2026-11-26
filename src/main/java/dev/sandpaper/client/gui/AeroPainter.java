@@ -1,6 +1,8 @@
 package dev.sandpaper.client.gui;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.sandpaper.client.gui.options.Opt;
+import dev.sandpaper.client.gui.theme.BlendedPalette;
+import dev.sandpaper.client.gui.theme.ThemeHost;
 import dev.sandpaper.client.gui.options.Opt.Kind;
 import dev.sandpaper.client.gui.options.OptPage;
 import java.util.ArrayList;
@@ -11,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 public final class AeroPainter {
@@ -31,17 +34,13 @@ public final class AeroPainter {
     public static final int CONTROL_W = 58;
     public static final int FIELD_W = 128;
     public static final int GUTTER = 8;
-    // Narrowest an option name shrinks to before a cycling control stops growing
     public static final int NAME_MIN = 64;
-    // What a shortened value ends in, to show it was cut
     public static final String CUT = "...";
     public static final int SECTION_H = 27;
     public static final int SECTION_GAP = 6;
     public static final int GROUP_GAP = 3;
-    // Reserved whether or not the scrollbar shows
     public static final int SCROLLBAR_OFFSET = 5;
     public static final int SCROLLBAR_WIDTH = 7;
-    // Below FULL_BLEED the menu fills the viewport; above FLOATING it holds at MENU_MAX
     public static final int MENU_MIN = 505;
     public static final int MENU_MAX = 555;
     public static final int FULL_BLEED = 605;
@@ -49,8 +48,16 @@ public final class AeroPainter {
     private static final long HOVER_NANOS = 110_000_000L;
     private static final long PAGE_NANOS = 165_000_000L;
     private static final int PAGE_ROW_PITCH = PAGE_ROW_H + 1;
-    // The highlighted section is read 3 rows below the top, capped at half the view
     public static final int FOCUS_LEAD_ROWS = 3;
+    private static final int THEME_GRID_MIN = 720;
+    private static final int THEME_GRID_MAX = 1000;
+    private static final int THEME_FOOTER_H = 56;
+    private static final int THEME_FIELD_MIN = 84;
+    private static final int THEME_BANNER_H = 26;
+    private static final int THEME_CHROME_GAP = 4;
+    private static final int THEME_FOOTER_BUTTONS = 5;
+    private static BooleanSupplier sectionThemesSupplier = () -> false;
+
     public static final class Entry {
         final OptPage.Group group;
         final Opt option;
@@ -62,6 +69,7 @@ public final class AeroPainter {
         int y;
         int h;
         float hover;
+        int column = 0;
         Entry(OptPage.Group group, Opt option, Kind kind, String header,
                 int section, boolean sectionBreak) {
             this.group = group;
@@ -108,7 +116,6 @@ public final class AeroPainter {
     private final Map<String, String> upperHeaders = new HashMap<>();
     private final int[] countLabelKeys = {-1, 0, 0, 0, 0, 0, 0, 0};
     private final String[] countLabelValues = new String[8];
-    // Caches the last measured width per option; read by click()
     private final Map<Opt, Integer> enumWidths = new IdentityHashMap<>();
     private final Map<Opt, EnumLabelWidth> enumLabelWidths = new IdentityHashMap<>();
     private record EnumLabelWidth(long revision, int width) { }
@@ -142,13 +149,10 @@ public final class AeroPainter {
     private boolean pendingRebuild;
     private int contentHeight;
     private String emptyMessage = "";
-    // Rebuilt together with the list
     private int[] sectionY;
     private int[] sectionEnd;
     private String[] pageNames;
-    // Counts are one frame behind the current search
     private int[] matchCounts;
-    // Recomputed from scroll on every scroll change; only a name click writes it directly
     private int current;
     private Entry hovered;
     private Entry focused;
@@ -156,7 +160,6 @@ public final class AeroPainter {
     private int hoveredPage = -1;
     private boolean draggingSlider;
     private Opt dragOption;
-    // The dragged slider's value when its press began
     private Object dragFrom;
     private boolean draggingBar;
     private int barGrab;
@@ -175,7 +178,6 @@ public final class AeroPainter {
     private Opt refusalOption;
     private String refusalText;
     private String refusalResult;
-    // Caches the footer's last wrap; footerLines owns what it holds
     private String wrapText;
     private int wrapWidth;
     private int wrapLines;
@@ -191,6 +193,18 @@ public final class AeroPainter {
     private Consumer<Opt.Action> buttonAction = opt -> { };
     private Runnable applyAction = () -> { };
     private Runnable doneAction = () -> { };
+    private ThemeHost themeSession = null;
+    private boolean paintingThemed = false;
+    private int paintColumn = -1;
+    private int themedFieldW = FIELD_W;
+    private int pinnedPage = -1;
+    private String themedTip = "";
+    private int themedApplyEdits = 0;
+    private String themedApplyLabel = "Apply";
+    private String themedEngagedLabel = "";
+    private Entry themedDescribed = null;
+    private String themedDescription = "";
+    private Runnable cancelAction = () -> { };
     private Runnable pressAction = () -> { };
     public AeroPainter(String title, List<OptPage> pages) {
         this.title = title;
@@ -202,9 +216,40 @@ public final class AeroPainter {
     public static void setTreatmentSupplier(Supplier<AeroTheme.Treatment> supplier) {
         treatmentSupplier = Objects.requireNonNull(supplier);
     }
-    // The treatment the next frame draws in; read once and held for the whole frame
     public static AeroTheme.Treatment treatment() {
         return treatmentSupplier.get();
+    }
+    public static void setSectionThemesSupplier(BooleanSupplier supplier) {
+        sectionThemesSupplier = Objects.requireNonNull(supplier);
+    }
+    public static boolean sectionThemesEnabled() {
+        return sectionThemesSupplier.getAsBoolean();
+    }
+    void attachThemeSession(ThemeHost session) {
+        int offset = scroll;
+        pinnedPage = -1;
+        themeSession = session;
+        geometry();
+        rebuild();
+        if (themed()) {
+            themeSession.scrollPhysics().snapTo(offset);
+            themedEngagedLabel = "Sections with a theme: " + themeSession.engagedCount();
+        }
+    }
+    ThemeHost themeSession() {
+        return themeSession;
+    }
+    boolean isThemePeek() {
+        return themed() && themeSession.isPeekMode();
+    }
+    void onCancel(Runnable action) {
+        cancelAction = action;
+    }
+    private boolean themed() {
+        return themeSession != null && sectionThemesEnabled();
+    }
+    private boolean themedGrid() {
+        return themed() && width >= THEME_GRID_MIN;
     }
     public void onButton(Consumer<Opt.Action> action) {
         this.buttonAction = action;
@@ -215,7 +260,6 @@ public final class AeroPainter {
     public void onDone(Runnable action) {
         this.doneAction = action;
     }
-    // Runs once for each press that acts
     void onPress(Runnable action) {
         this.pressAction = action;
     }
@@ -231,7 +275,6 @@ public final class AeroPainter {
         enumWidths.clear();
         upperHeaders.clear();
         rowNames.clear();
-        // Do not guard this on width or height; rebuild depends on values and query, not size
         rebuild();
     }
     public void layoutFrame(int width, int height) {
@@ -239,8 +282,11 @@ public final class AeroPainter {
             this.width = width;
             this.height = height;
             geometry();
+            if (themed()) {
+                rebuild();
+            }
         }
-        if (!query.isEmpty()) {
+        if (!query.isEmpty() && !themed()) {
             rebuild();
             return;
         }
@@ -293,7 +339,6 @@ public final class AeroPainter {
     private static String valueText(Opt option) {
         return option.format();
     }
-    // Rows of a section the search kept; -1 while the search box is empty
     public int matchCount(int index) {
         sync();
         if (query.isEmpty()) {
@@ -301,7 +346,6 @@ public final class AeroPainter {
         }
         return matchCounts[index];
     }
-    // One list for every section; a search that empties a section leaves no entry for it
     private void rebuild() {
         pendingRebuild = false;
         int capacity = 0;
@@ -316,11 +360,11 @@ public final class AeroPainter {
         int[] starts = new int[pages.size()];
         int[] ends = new int[pages.size()];
         String[] names = new String[pages.size()];
-        // Read by the left column
         int[] kept = new int[pages.size()];
         int y = 0;
         String q = query.toLowerCase(Locale.ROOT);
         boolean searching = !q.isEmpty();
+        boolean grid = themedGrid();
         for (int p = 0; p < pages.size(); p++) {
             OptPage category = pages.get(p);
             int sectionTop = y + (built.isEmpty() ? 0 : SECTION_GAP);
@@ -329,12 +373,12 @@ public final class AeroPainter {
             for (OptPage.Group group : category.groups()) {
                 String groupName = null;
                 boolean groupHit = false;
-                // Flattened once per group, not per row
                 if (searching) {
                     groupName = plain(group.name());
                     groupHit = groupName.toLowerCase(Locale.ROOT).contains(q);
                 }
                 boolean headerBuilt = false;
+                int column = 0;
                 for (Opt option : group.options()) {
                     String optionName = null;
                     if (searching && !groupHit) {
@@ -378,8 +422,17 @@ public final class AeroPainter {
                     if (row.hover != 0.0f) {
                         moving.add(row);
                     }
-                    cursor += ROW_H;
+                    row.column = column;
+                    if (!grid || column == 1) {
+                        cursor += ROW_H;
+                    }
+                    if (grid) {
+                        column = 1 - column;
+                    }
                     built.add(row);
+                }
+                if (column == 1) {
+                    cursor += ROW_H;
                 }
             }
             if (!pageHasContent) {
@@ -390,7 +443,13 @@ public final class AeroPainter {
             starts[p] = sectionTop;
             y = cursor;
         }
-        // Every offset belongs to exactly one section
+        if (themed() && !searching && !built.isEmpty()) {
+            Entry maintenance = new Entry(null, null, Kind.PLAIN, "Settings files and reset", -1, true);
+            maintenance.y = y + SECTION_GAP;
+            maintenance.h = SECTION_H + ROW_H;
+            built.add(maintenance);
+            y = maintenance.y + maintenance.h;
+        }
         int tail = -1;
         for (int p = pages.size() - 1; p >= 0; p--) {
             if (starts[p] < 0) {
@@ -410,11 +469,12 @@ public final class AeroPainter {
         this.contentHeight = y;
         this.emptyMessage = built.isEmpty() ? "Nothing matches \"" + query + "\"." : "";
         clampScroll();
-        // Tracked by option identity
         focused = focused == null ? null : rowFor(built, focused.option);
         current = settle(current);
+        syncThemeSpans();
     }
     private void queryChanged() {
+        pinnedPage = -1;
         if (query.isEmpty()) {
             rebuild();
             return;
@@ -426,7 +486,6 @@ public final class AeroPainter {
             rebuild();
         }
     }
-    // Returns null for a null option
     private static Entry rowFor(List<Entry> built, Opt option) {
         if (option == null) {
             return null;
@@ -438,7 +497,6 @@ public final class AeroPainter {
         }
         return null;
     }
-    // Resolves the highlight against the current list; never an emptied section
     private int settle(int wanted) {
         if (entries.isEmpty()) {
             return -1;
@@ -451,7 +509,6 @@ public final class AeroPainter {
     public int focusLine(int offset) {
         return offset + Math.min(ROW_H * FOCUS_LEAD_ROWS, viewHeight() / 2);
     }
-    // Total: every offset maps to a section, with no separate fallback
     public int sectionAt(int offset) {
         sync();
         int probe = focusLine(offset);
@@ -485,7 +542,6 @@ public final class AeroPainter {
         sync();
         return index >= 0 && index < sectionY.length && sectionY[index] >= 0;
     }
-    // Skips sections a search emptied
     private int nextShown(int from, int by) {
         int n = pages.size();
         for (int step = 1; step <= n; step++) {
@@ -503,7 +559,8 @@ public final class AeroPainter {
         return Math.max(0, Math.min(offset, max));
     }
     private void geometry() {
-        geometryMenuW = width <= FULL_BLEED ? width
+        geometryMenuW = themedGrid() ? Math.min(THEME_GRID_MAX, width - 2 * MARGIN)
+                : width <= FULL_BLEED ? width
                 : width >= FLOATING ? MENU_MAX
                 : MENU_MIN + (int) ((float) (width - FULL_BLEED)
                         / (FLOATING - FULL_BLEED) * (MENU_MAX - MENU_MIN));
@@ -513,7 +570,7 @@ public final class AeroPainter {
         geometryContentRight = geometryMenuRight - MARGIN;
         geometryRowRight = geometryContentRight - SCROLLBAR_OFFSET - SCROLLBAR_WIDTH;
         geometryBarX = geometryContentRight - 2 - SCROLLBAR_WIDTH;
-        geometryFooterHeight = Math.max(FOOTER_MIN, Math.min(FOOTER_MAX, height / 9));
+        geometryFooterHeight = themed() ? THEME_FOOTER_H : Math.max(FOOTER_MIN, Math.min(FOOTER_MAX, height / 9));
         geometryContentBottom = height - MARGIN - geometryFooterHeight - MARGIN;
         geometryViewHeight = Math.max(ROW_H, geometryContentBottom - contentTop() - 5);
         geometryControlX = geometryRowRight - GUTTER - CONTROL_W;
@@ -545,15 +602,20 @@ public final class AeroPainter {
     public int contentRight() {
         return geometryContentRight;
     }
-    // Pane width minus the scrollbar's reserved gutter
     public int rowRight() {
-        return geometryRowRight;
+        return paintColumn == 0 && themedGrid() ? columnDivider() - THEME_CHROME_GAP : geometryRowRight;
+    }
+    private int columnDivider() {
+        return geometryContentX + (geometryRowRight - geometryContentX) / 2;
+    }
+    private int rowLeft(int column) {
+        return column == 1 ? columnDivider() + THEME_CHROME_GAP : contentX();
     }
     public int barX() {
         return geometryBarX;
     }
     public int contentTop() {
-        return MARGIN + HEADER_H;
+        return themed() ? searchTop() + searchHeight() + THEME_CHROME_GAP : MARGIN + HEADER_H;
     }
     public int footerHeight() {
         return geometryFooterHeight;
@@ -561,35 +623,43 @@ public final class AeroPainter {
     public int contentBottom() {
         return geometryContentBottom;
     }
-    // Panel height minus 3px top margin and 2px bottom clip
     public int viewHeight() {
         return geometryViewHeight;
     }
     public int controlX() {
-        return geometryControlX;
+        return paintColumn < 0 ? geometryControlX : rowRight() - GUTTER - CONTROL_W;
     }
     public int valueRight() {
-        return geometryValueRight;
+        return paintColumn < 0 ? geometryValueRight : controlX() - GUTTER;
     }
     public int fieldX() {
-        return geometryFieldX;
+        return paintColumn < 0 ? geometryFieldX : rowRight() - GUTTER - themedFieldW;
     }
-    // Where a row's name starts; other widths are measured from this same point
+    private int themedFieldWidth(AeroSurface s, Entry e) {
+        int room = rowRight() - 2 * GUTTER - nameX() - s.textWidth(e.name);
+        return Math.max(THEME_FIELD_MIN, Math.min(FIELD_W, room));
+    }
+    private int themedEnumLimit(AeroSurface s, Entry e) {
+        return rowRight() - GUTTER - 4 - nameX() - s.textWidth(nameOf(e.option));
+    }
+    private void noteCut(Entry e, String full, String shown) {
+        if (paintingThemed && e == hovered && !full.equals(shown)) {
+            themedTip = themedTip.isEmpty() ? full : themedTip + " " + full;
+        }
+    }
     public int nameX() {
-        return geometryNameX;
+        return paintColumn < 0 ? geometryNameX : rowLeft(paintColumn) + 12;
     }
-    // Padding at each end of a cycling control, sized for the chosen font's glyph width
     public int chevronRoom(AeroSurface s) {
         int left = s.textWidth("<");
         int right = s.textWidth(">");
         lastChevronRight = right;
         return 4 + Math.max(left, right);
     }
-    // Max width for a cycling control; never narrower than CONTROL_W
     public int enumRoom() {
-        return geometryEnumRoom;
+        return paintColumn < 0 ? geometryEnumRoom
+                : Math.max(CONTROL_W, rowRight() - nameX() - NAME_MIN - 2 * GUTTER);
     }
-    // Width of a cycling control, sized to its widest choice
     public int enumWidth(AeroSurface s, Entry e) {
         return enumWidthCached(s, e, chevronRoom(s));
     }
@@ -609,7 +679,11 @@ public final class AeroPainter {
         }
         int want = e != null && e.option instanceof Opt.Cycle<?> ? widest + chevronRoom * 2
                 : CONTROL_W;
-        return Math.max(CONTROL_W, Math.min(enumRoom(), want));
+        int room = enumRoom();
+        if (paintColumn >= 0 && e != null && e.option != null) {
+            room = Math.max(CONTROL_W, themedEnumLimit(s, e));
+        }
+        return Math.max(CONTROL_W, Math.min(room, want));
     }
     public int enumX(AeroSurface s, Entry e) {
         return enumLeft(enumWidth(s, e));
@@ -618,13 +692,11 @@ public final class AeroPainter {
         return rowRight() - GUTTER - width;
     }
     public int valueRoom() {
-        return geometryValueRoom;
+        return paintColumn < 0 ? geometryValueRoom : Math.max(0, valueRight() - nameX() - NAME_MIN - GUTTER);
     }
-    // Takes an already formatted value; not formatted again here
     private Fitted valueInColumn(AeroSurface s, String value) {
         return fitMeasured(s, value, valueRoom());
     }
-    // Shortens text to fit room; ends in three dots
     public String fit(AeroSurface s, String text, int room) {
         return fitMeasured(s, text, room).text();
     }
@@ -668,7 +740,6 @@ public final class AeroPainter {
             candidate = kept.isEmpty() ? "" : kept + mark;
             width = kept.isEmpty() ? 0 : s.textWidth(candidate);
         }
-        // Returns empty rather than a bare cut mark when there is no room
         return hasVisibleText(kept, kept.length()) ? new Fitted(candidate, width) : new Fitted("", 0);
     }
     private static boolean hasVisibleText(String text, int end) {
@@ -747,12 +818,11 @@ public final class AeroPainter {
         return geometrySearchRight;
     }
     private int searchTop() {
-        return MARGIN;
+        return themed() ? MARGIN + THEME_BANNER_H + THEME_CHROME_GAP : MARGIN;
     }
     private int searchHeight() {
         return HEADER_H - 4;
     }
-    // Last row needs no trailing gap below it
     public int pageRows() {
         int room = contentBottom() - contentTop() - 8;
         if (room < PAGE_ROW_H) {
@@ -760,7 +830,6 @@ public final class AeroPainter {
         }
         return Math.min(pages.size(), (room - PAGE_ROW_H) / PAGE_ROW_PITCH + 1);
     }
-    // A function of current and the row count; keeps no offset of its own
     public int pageTop(int rows) {
         sync();
         if (rows <= 0 || pages.size() <= rows) {
@@ -771,7 +840,6 @@ public final class AeroPainter {
     private int pageRowTop(int slot) {
         return contentTop() + 4 + slot * PAGE_ROW_PITCH;
     }
-    // The only place list coords become screen coords; paint and hit test both use it
     public int listOrigin() {
         sync();
         int slide = Math.round((1.0f - AeroTheme.easeOut(pagePhase)) * 7.0f);
@@ -781,14 +849,17 @@ public final class AeroPainter {
         sync();
         return listOrigin() + e.y;
     }
-    // Read once per frame in paint() below; every painted colour comes from this, not a constant
     private AeroTheme.Palette palette = AeroTheme.colours();
-    public void paint(AeroSurface.Backdrop s, int mouseX, int mouseY, long nowNanos) {
-        sync();
+    private AeroTheme.Treatment beginFrame() {
         AeroTheme.Treatment treatment = treatment();
         palette = AeroTheme.colours(treatment);
         refusalCacheActive = true;
         refusalCached = false;
+        return treatment;
+    }
+    public void paint(AeroSurface.Backdrop s, int mouseX, int mouseY, long nowNanos) {
+        sync();
+        AeroTheme.Treatment treatment = beginFrame();
         advance(nowNanos, mouseX, mouseY);
         AeroTheme.backdrop(s);
         paintHeader(s, mouseX, mouseY, treatment);
@@ -796,6 +867,253 @@ public final class AeroPainter {
         paintContent(s, mouseX, mouseY, treatment);
         paintFooter(s, mouseX, mouseY, treatment);
         refusalCacheActive = false;
+    }
+    void paintThemed(AeroSurface aeroSurface, int mouseX, int mouseY, long nowNanos) {
+        if (!themed()) {
+            return;
+        }
+        sync();
+        themeSession.frameBounds(width, height, contentTop(), contentBottom());
+        themeSession.stepFrame(themeSession.frameSeconds(nowNanos), viewHeight(), FOCUS_LEAD_ROWS * ROW_H,
+                mouseX, mouseY, inside(mouseX, mouseY, 0, 0, width, height));
+        syncThemedScroll();
+        AeroTheme.Treatment treatment = beginFrame();
+        advance(nowNanos, mouseX, mouseY);
+        paintingThemed = true;
+        try {
+            themedTip = "";
+            themeSession.paintBackdropAndCenterpiece(width, height);
+            themeSession.paintBanner(menuX() + MARGIN, MARGIN, menuW() - 2 * MARGIN,
+                    THEME_BANNER_H, title, mouseX, mouseY);
+            if (!themeSession.isPeekMode()) {
+                paintThemedBody(aeroSurface, mouseX, mouseY, treatment);
+            }
+            paintThemedFooter(aeroSurface, mouseX, mouseY);
+            paintThemedTip(aeroSurface, mouseX, mouseY);
+        } finally {
+            paintingThemed = false;
+            refusalCacheActive = false;
+        }
+    }
+    private void paintThemedTip(AeroSurface s, int mouseX, int mouseY) {
+        if (themedTip.isEmpty() || themeSession.isPeekMode()) {
+            return;
+        }
+        String tip = fit(s, themedTip, width - 12);
+        if (tip.isEmpty()) {
+            return;
+        }
+        int w = themeSession.textWidth(tip) + 8;
+        int h = themeSession.lineHeight() + 6;
+        int x = Math.max(2, Math.min(mouseX + 10, width - w - 2));
+        int y = Math.max(2, Math.min(mouseY + 12, height - h - 2));
+        themeSession.paintInfoPanel(x, y, w, h);
+        themeSession.text(tip, x + 4, y + 3, themeSession.activePalette().textPrimary, false);
+    }
+    private void syncThemeSpans() {
+        if (themed()) {
+            themeSession.syncSpans(sectionY, sectionEnd, pages.size());
+            themeSession.scrollPhysics().configureBounds(maxScroll());
+        }
+    }
+    private void syncThemedScroll() {
+        scroll = clampOffset((int) Math.round(themeSession.scrollPhysics().displayScrollPx()), maxScroll());
+        if (pinnedPage >= 0 && !sectionShown(pinnedPage)) {
+            pinnedPage = -1;
+        }
+        current = pinnedPage >= 0 ? pinnedPage : sectionAt(scroll);
+    }
+    private void paintThemedBody(AeroSurface s, int mouseX, int mouseY, AeroTheme.Treatment treatment) {
+        paintHeader(s, mouseX, mouseY, treatment);
+        paintPageList(s, treatment);
+        int x = contentX();
+        int y = contentTop();
+        int w = contentRight() - x;
+        int bottom = contentBottom();
+        BlendedPalette active = themeSession.activePalette();
+        themeSession.paintInfoPanel(x, y, w, bottom - y);
+        themeSession.clip(x + 2, y + 2, x + w - 2, bottom - 2);
+        try {
+            if (entries.isEmpty()) {
+                themeSession.text(emptyMessage, x + 12, y + 12, active.textSecondary, false);
+            }
+            int origin = listOrigin();
+            int first = firstEntryReaching(y - origin, true);
+            for (int i = first; i < entries.size() && origin + entries.get(i).y < bottom; i++) {
+                Entry e = entries.get(i);
+                int top = origin + e.y;
+                BlendedPalette colours = e.section < 0 ? active : themeSession.pagePalette(e.section);
+                if (e.isHeader()) {
+                    int inset = GUTTER;
+                    themeSession.paintSectionDivider(upperHeader(e.header), x + inset,
+                            top + (Math.min(e.h, SECTION_H) - themeSession.lineHeight()) / 2,
+                            rowRight() - x - 2 * inset, colours);
+                    if (e.section < 0) {
+                        themeSession.text("Use Reset to clear the search and return to the top.", x + inset,
+                                top + SECTION_H, colours.textSecondary, false);
+                    }
+                } else {
+                    paintThemedRow(s, e, top, colours, treatment);
+                }
+            }
+        } finally {
+            themeSession.unclip();
+        }
+        paintScrollbar(s, mouseX, mouseY);
+    }
+    private void paintThemedRow(AeroSurface s, Entry e, int y, BlendedPalette colours,
+            AeroTheme.Treatment treatment) {
+        paintColumn = e.column;
+        try {
+            int left = rowLeft(e.column);
+            boolean hot = e == focused || e.hover > 0.0F;
+            if (hot) {
+                themeSession.fill(left + 3, y, rowRight() - 1, y + e.h - 1, colours.controlHover);
+            }
+            paintRow(s, e, left, y, treatment);
+        } finally {
+            paintColumn = -1;
+        }
+    }
+    private void paintThemedFooter(AeroSurface s, int mouseX, int mouseY) {
+        BlendedPalette colours = themeSession.activePalette();
+        int x = menuX() + MARGIN;
+        int w = menuW() - 2 * MARGIN;
+        int y = height - MARGIN - footerHeight();
+        boolean peek = themeSession.isPeekMode();
+        int buttonWidth = themedButtonWidth();
+        if (!peek) {
+            themeSession.paintInfoPanel(x, y, w, footerHeight());
+            int lineH = s.lineHeight();
+            int lines = Math.max(1, (footerHeight() - FOOTER_BTN_H - 10) / lineH);
+            int infoY = y + 4;
+            themeSession.clip(x + 5, infoY, x + w - 5, infoY + lines * lineH);
+            try {
+                for (String line : footerLines(s, themedFooterInfo(), w - 10, lines)) {
+                    themeSession.text(line, x + 5, infoY, colours.textSecondary, false);
+                    infoY += lineH;
+                }
+            } finally {
+                themeSession.unclip();
+            }
+            paintThemedButton("Reset", themedButtonX(0), buttonWidth, mouseX, mouseY, false, false);
+            paintThemedButton("Cancel", themedButtonX(1), buttonWidth, mouseX, mouseY, false, false);
+            int edits = countThemedEdits();
+            if (themedApplyEdits != edits) {
+                themedApplyEdits = edits;
+                themedApplyLabel = edits == 0 ? "Apply" : "Apply (" + edits + ")";
+            }
+            paintThemedButton(themedApplyLabel, themedButtonX(2), buttonWidth,
+                    mouseX, mouseY, edits > 0, false);
+            paintThemedButton("Done", themedButtonX(3), buttonWidth, mouseX, mouseY, false, false);
+        }
+        paintThemedButton("Eye", themedButtonX(4), buttonWidth, mouseX, mouseY, peek, peek);
+    }
+    private String themedFooterInfo() {
+        Entry described = hovered == null ? focused : hovered;
+        if (described == null) {
+            return themedEngagedLabel;
+        }
+        Opt option = described.option;
+        if (option == editingOption && option != null) {
+            String refused = refusalFor(option, editing);
+            if (refused != null) {
+                return refused;
+            }
+        }
+        if (described != themedDescribed) {
+            themedDescribed = described;
+            String description = option == null ? plain(described.group.description()) : plain(option.description());
+            themedDescription = description.isEmpty() ? described.header : description;
+        }
+        return themedDescription;
+    }
+    private int countThemedEdits() {
+        int edits = 0;
+        for (int p = 0; p < pages.size(); p++) {
+            List<OptPage.Group> groups = pages.get(p).groups();
+            for (int g = 0; g < groups.size(); g++) {
+                List<Opt> options = groups.get(g).options();
+                for (int i = 0; i < options.size(); i++) {
+                    if (options.get(i).edited()) {
+                        edits++;
+                    }
+                }
+            }
+        }
+        return edits;
+    }
+    private void paintThemedButton(String label, int x, int width, int mouseX, int mouseY,
+            boolean accent, boolean selected) {
+        int y = footerButtonY();
+        BlendedPalette colours = themeSession.activePalette();
+        themeSession.paintActiveControl(x, y, width, FOOTER_BTN_H,
+                inside(mouseX, mouseY, x, y, width, FOOTER_BTN_H), false, accent);
+        themeSession.clip(x, y, x + width, y + FOOTER_BTN_H);
+        try {
+            themeSession.text(label, x + (width - themeSession.textWidth(label)) / 2,
+                    y + (FOOTER_BTN_H - themeSession.lineHeight()) / 2,
+                    selected ? colours.accentBright : colours.textPrimary, false);
+        } finally {
+            themeSession.unclip();
+        }
+    }
+    private int themedButtonWidth() {
+        int room = menuW() - 2 * MARGIN - (THEME_FOOTER_BUTTONS - 1) * THEME_CHROME_GAP;
+        return Math.clamp(room / THEME_FOOTER_BUTTONS, 1, FOOTER_BTN_W);
+    }
+    private int themedButtonX(int slot) {
+        int buttonWidth = themedButtonWidth();
+        int totalWidth = THEME_FOOTER_BUTTONS * buttonWidth + (THEME_FOOTER_BUTTONS - 1) * THEME_CHROME_GAP;
+        return menuX() + (menuW() - totalWidth) / 2 + slot * (buttonWidth + THEME_CHROME_GAP);
+    }
+    private boolean clickThemedFooter(int mx, int my) {
+        int y = footerButtonY();
+        int buttonWidth = themedButtonWidth();
+        if (inside(mx, my, themedButtonX(4), y, buttonWidth, FOOTER_BTN_H)) {
+            commitEditing();
+            release();
+            themeSession.togglePeek();
+            return true;
+        }
+        if (themeSession.isPeekMode()) {
+            return false;
+        }
+        if (inside(mx, my, themedButtonX(0), y, buttonWidth, FOOTER_BTN_H)) {
+            commitEditing();
+            focused = null;
+            searchFocused = false;
+            focusZone = 1;
+            setQuery("");
+            sync();
+            pinnedPage = -1;
+            themeSession.scrollPhysics().jumpTo(0.0);
+            return true;
+        }
+        if (inside(mx, my, themedButtonX(1), y, buttonWidth, FOOTER_BTN_H)) {
+            themeSession.playCancel();
+            cancelAction.run();
+            return true;
+        }
+        boolean apply = inside(mx, my, themedButtonX(2), y, buttonWidth, FOOTER_BTN_H);
+        boolean done = inside(mx, my, themedButtonX(3), y, buttonWidth, FOOTER_BTN_H);
+        if (apply || done) {
+            commitEditing();
+            themeSession.playApply();
+            if (apply) {
+                applyAction.run();
+            } else {
+                doneAction.run();
+            }
+        }
+        return apply || done;
+    }
+    private boolean overThemedChrome(int mx, int my) {
+        return inside(mx, my, menuX() + MARGIN, MARGIN, menuW() - 2 * MARGIN, contentTop() - MARGIN)
+                || inside(mx, my, menuX() + MARGIN, contentTop(), LIST_W, contentBottom() - contentTop())
+                || inside(mx, my, contentX(), contentTop(), contentRight() - contentX(), contentBottom() - contentTop())
+                || inside(mx, my, menuX() + MARGIN, height - MARGIN - footerHeight(),
+                        menuW() - 2 * MARGIN, footerHeight());
     }
     private void advance(long nowNanos, int mouseX, int mouseY) {
         long delta = lastNanos == 0 ? 16_000_000L : Math.max(0, nowNanos - lastNanos);
@@ -820,14 +1138,14 @@ public final class AeroPainter {
         if (hovered != null && hovered.hover != 0.0f) {
             hoverNext.add(hovered);
         }
-        for (Entry e : hoverEntries) {
+        for (int i = 0; i < hoverEntries.size(); i++) {
+            Entry e = hoverEntries.get(i);
             if (e == hovered) {
                 continue;
             }
             float target = 0.0f;
             float was = e.hover;
             e.hover = approach(was, target, hoverStep);
-            // Compares the value before and after, not against zero
             if (e.option != null && e.hover != was) {
                 rememberHover(e);
             }
@@ -860,13 +1178,19 @@ public final class AeroPainter {
     private void paintHeader(AeroSurface s, int mouseX, int mouseY, AeroTheme.Treatment treatment) {
         int y = searchTop();
         int h = searchHeight();
-        s.text(title, menuX() + MARGIN + 6, y + (h - s.lineHeight()) / 2 + 1,
-                palette.text, true);
+        if (!paintingThemed) {
+            s.text(title, menuX() + MARGIN + 6, y + (h - s.lineHeight()) / 2 + 1,
+                    palette.text, true);
+        }
         int sx = searchX();
         int sw = searchRight() - sx;
         boolean over = inside(mouseX, mouseY, sx, y, sw, h);
-        AeroTheme.well(s, treatment, sx, y, sw, h,
-                searchFocused ? 1.0f : over ? 0.75f : 0.45f);
+        if (!paintingThemed) {
+            AeroTheme.well(s, treatment, sx, y, sw, h,
+                    searchFocused ? 1.0f : over ? 0.75f : 0.45f);
+        } else {
+            themeSession.paintActiveControl(sx, y, sw, h, searchFocused || over, false, false);
+        }
         if (searchFocused || over) {
             AeroTheme.innerGlow(s, sx, y, sw, h, searchFocused ? 1.0f : 0.45f, palette.glow);
         }
@@ -886,8 +1210,12 @@ public final class AeroPainter {
         int x = menuX() + MARGIN;
         int y = contentTop();
         int h = contentBottom() - y;
-        AeroTheme.panel(s, treatment, x, y, LIST_W, h,
-                0.75f + 0.25f * (hoveredPage >= 0 ? pageHover[hoveredPage] : 0.0f));
+        if (!paintingThemed) {
+            AeroTheme.panel(s, treatment, x, y, LIST_W, h,
+                    0.75f + 0.25f * (hoveredPage >= 0 ? pageHover[hoveredPage] : 0.0f));
+        } else {
+            themeSession.paintInfoPanel(x, y, LIST_W, h);
+        }
         s.clip(x, y, x + LIST_W, y + h);
         int rows = pageRows();
         int first = pageTop(rows);
@@ -915,7 +1243,6 @@ public final class AeroPainter {
             String name = pageNames[i] != null ? pageNames[i] : plain(pages.get(i).name());
             String icon = pages.get(i).icon();
             String tag = count > 0 ? countLabel(count) : "";
-            // Badge reserves its column even when hidden
             int tagWidth = tag.isEmpty() ? 0 : s.textWidth(tag);
             int badge = tag.isEmpty() ? 5 : 8 + tagWidth;
             s.clip(rx, ry, rx + rw - badge, ry + PAGE_ROW_H);
@@ -1014,7 +1341,6 @@ public final class AeroPainter {
         s.unclip();
     }
     private void paintGroupHeader(AeroSurface s, Entry e, int x, int y) {
-        // Do not hoist to the constructor
         String name = upperHeader(e.header);
         int tx = x + 12;
         int ty = y + GROUP_H - s.lineHeight() - 1;
@@ -1061,17 +1387,16 @@ public final class AeroPainter {
         boolean on = option.available();
         boolean isFocus = e == focused;
         float lift = AeroTheme.easeOut(e.hover);
-        // Only STRING, COLOUR or NUMBER rows use the editing buffer; other kinds never see it.
         String value = option == editingOption ? editing : valueText(option);
         int rx = x + 4;
         int rw = rowRight() - rx;
-        if (isFocus) {
+        if (isFocus && !paintingThemed) {
             AeroTheme.rounded(s, rx, y, rw, e.h - 1, AeroTheme.RADIUS_ROW,
                     AeroTheme.scaleAlpha(palette.accentDeep, 0.85f),
                     AeroTheme.scaleAlpha(palette.accentDeep, 0.35f));
             AeroTheme.gloss(s, rx, y, rw, e.h - 1, 0.7f);
             s.fill(rx, y, rx + 2, y + e.h - 1, palette.accent);
-        } else if (lift > 0.01f) {
+        } else if (lift > 0.01f && !paintingThemed) {
             AeroTheme.flatRounded(s, rx, y, rw, e.h - 1, AeroTheme.RADIUS_ROW,
                     AeroTheme.scaleAlpha(palette.rowHover, lift * 0.5f));
         }
@@ -1083,7 +1408,6 @@ public final class AeroPainter {
         int nameColour = !on ? palette.textOff
                 : AeroTheme.mix(palette.textDim, palette.text,
                         isFocus ? 1.0f : lift * 0.8f);
-        // Not cached per surface
         int inset = 0;
         int rightChevron = 0;
         int enumW = 0;
@@ -1091,34 +1415,46 @@ public final class AeroPainter {
             inset = chevronRoom(s);
             rightChevron = lastChevronRight;
             enumW = enumWidthCached(s, e, inset);
-            // Read by click(), which has no surface
             Integer cached = enumWidths.get(option);
             if (cached == null || cached.intValue() != enumW) {
                 enumWidths.put(option, enumW);
             }
         }
-        // Column holds the value only for kinds drawn beside the control; others leave it empty.
-        String column = "";
-        int columnWidth = 0;
-        int nameRight = switch (e.kind) {
-            case STRING, COLOUR, NUMBER, BUTTON -> fieldX() - GUTTER;
-            // Name is measured against where the enum control actually starts, not a fixed constant.
-            case ENUM -> enumLeft(enumW) - 4;
-            // Value starts where it actually begins, not where its column ends.
-            default -> {
-                Fitted fitted = valueInColumn(s, value);
-                column = fitted.text();
-                columnWidth = fitted.width();
-                yield valueRight() - fitted.width() - GUTTER;
-            }
-        };
-        s.clip(x + 6, y, nameRight, y + e.h);
         if (e.name == null) {
             e.name = nameOf(option);
         }
-        // Shortened, not clipped
-        s.text(fit(s, e.name, nameRight - nameX()), nameX(), textY,
-                nameColour, false);
+        themedFieldW = paintingThemed ? themedFieldWidth(s, e) : FIELD_W;
+        String column = "";
+        String columnFull = "";
+        int columnWidth = 0;
+        int nameRight = switch (e.kind) {
+            case STRING, COLOUR, NUMBER, BUTTON -> fieldX() - GUTTER;
+            case ENUM -> enumLeft(enumW) - 4;
+            default -> {
+                if (!paintingThemed) {
+                    Fitted fitted = valueInColumn(s, value);
+                    column = fitted.text();
+                    columnWidth = fitted.width();
+                } else {
+                    int room = Math.max(valueRoom(),
+                            valueRight() - nameX() - s.textWidth(e.name) - 2 * GUTTER);
+                    Fitted fitted = fitMeasured(s, value, room);
+                    column = fitted.text();
+                    columnWidth = fitted.width();
+                    columnFull = value;
+                }
+                yield valueRight() - columnWidth - GUTTER;
+            }
+        };
+        s.clip(x + 6, y, nameRight, y + e.h);
+        String shownName = fit(s, e.name, nameRight - nameX());
+        noteCut(e, e.name, shownName);
+        noteCut(e, columnFull, column);
+        if (paintingThemed) {
+            BlendedPalette row = themeSession.pagePalette(e.section);
+            nameColour = on ? row.textPrimary : row.textMuted;
+        }
+        s.text(shownName, nameX(), textY, nameColour, false);
         s.unclip();
         switch (e.kind) {
             case TOGGLE -> paintToggle(s, e, y, textY, on, lift, column, columnWidth,
@@ -1148,7 +1484,9 @@ public final class AeroPainter {
         int th = 12;
         int tx = controlX() + (CONTROL_W - tw) / 2;
         int ty = y + (e.h - 1 - th) / 2;
-        if (state && on) {
+        if (paintingThemed) {
+            paintThemedControl(e, tx, ty, tw, th, on, lift);
+        } else if (state && on) {
             AeroTheme.rounded(s, tx, ty, tw, th, AeroTheme.RADIUS_ROW,
                     palette.accent, palette.accentDeep);
             AeroTheme.gloss(s, tx, ty, tw, th, 0.9f + lift * 0.1f);
@@ -1156,13 +1494,20 @@ public final class AeroPainter {
             AeroTheme.rounded(s, tx, ty, tw, th, AeroTheme.RADIUS_ROW,
                     palette.wellTop, palette.wellBottom);
         }
-        AeroTheme.lipped(s, tx, ty, tw, th, AeroTheme.RADIUS_ROW,
-                state ? AeroTheme.scaleAlpha(palette.accentLight, 0.6f) : palette.edgeDark,
-                state ? palette.edgeDark : AeroTheme.scaleAlpha(palette.edgeLight, 0.4f));
+        if (!paintingThemed) {
+            AeroTheme.lipped(s, tx, ty, tw, th, AeroTheme.RADIUS_ROW,
+                    state ? AeroTheme.scaleAlpha(palette.accentLight, 0.6f) : palette.edgeDark,
+                    state ? palette.edgeDark : AeroTheme.scaleAlpha(palette.edgeLight, 0.4f));
+        }
         int kw = 10;
         int kx = state ? tx + tw - kw - 1 : tx + 1;
         int knobTop = on ? KNOB_ON_TOP : KNOB_OFF_TOP;
         int knobBottom = on ? KNOB_ON_BOTTOM : KNOB_OFF_BOTTOM;
+        if (paintingThemed) {
+            BlendedPalette colours = themeSession.pagePalette(e.section);
+            knobTop = state && on ? colours.accentBright : colours.textMuted;
+            knobBottom = state && on ? colours.accentPrimary : colours.frameTintDisabled;
+        }
         AeroTheme.rounded(s, kx, ty + 1, kw, th - 2, 1, knobTop, knobBottom);
         AeroTheme.gloss(s, kx, ty + 1, kw, th - 2, 1.0f);
     }
@@ -1175,7 +1520,11 @@ public final class AeroPainter {
         int tw = CONTROL_W;
         int th = 5;
         int ty = y + (e.h - 1 - th) / 2;
-        AeroTheme.rounded(s, tx, ty, tw, th, 1, palette.wellTop, palette.wellBottom);
+        if (!paintingThemed) {
+            AeroTheme.rounded(s, tx, ty, tw, th, 1, palette.wellTop, palette.wellBottom);
+        } else {
+            paintThemedControl(e, tx, ty, tw, th, on, lift);
+        }
         double span = slider.max() - slider.min();
         float t = span <= 0 ? 0.0f
                 : (float) ((slider.number() - slider.min()) / span);
@@ -1198,6 +1547,17 @@ public final class AeroPainter {
         int cx = enumLeft(cw);
         int ch = e.h - 5;
         int cy = y + 2;
+        if (paintingThemed) {
+            paintThemedControl(e, cx, cy, cw, ch, on, lift);
+            int colour = on ? themeSession.pagePalette(e.section).textPrimary
+                    : themeSession.pagePalette(e.section).textMuted;
+            Fitted cut = fitMeasured(s, value, cw - inset * 2);
+            noteCut(e, value, cut.text());
+            paintClippedControlLabel(s, cut.text(), cx + inset, cy, cw - inset * 2, ch, textY, colour);
+            s.text("<", cx + 3, textY, colour, false);
+            s.text(">", cx + cw - 3 - rightChevron, textY, colour, false);
+            return;
+        }
         AeroTheme.rounded(s, cx, cy, cw, ch, AeroTheme.RADIUS_ROW,
                 AeroTheme.mix(palette.buttonTop, palette.accentDeep, 0.18f + lift * 0.25f),
                 palette.buttonBottom);
@@ -1205,7 +1565,6 @@ public final class AeroPainter {
                 palette.edgeLight, palette.edgeDark);
         AeroTheme.gloss(s, cx, cy, cw, ch, 0.7f + lift * 0.3f);
         int room = cw - inset * 2;
-        // Shortened before centring, not after; the clip only guards a rounding error
         Fitted fitted = fitMeasured(s, value, room);
         String shown = fitted.text();
         int colour = on ? palette.text : palette.textOff;
@@ -1221,13 +1580,17 @@ public final class AeroPainter {
         Opt option = e.option;
         boolean editingThis = option == editingOption;
         int fx = fieldX();
-        int fw = FIELD_W;
+        int fw = paintColumn < 0 ? FIELD_W : themedFieldW;
         int fh = e.h - 5;
         int fy = y + 2;
         if (e.kind == Kind.COLOUR) {
             int swatch = 14;
-            AeroTheme.well(s, treatment, fx, fy, fw, fh,
-                    editingThis ? 1.0f : 0.45f + lift * 0.55f);
+            if (!paintingThemed) {
+                AeroTheme.well(s, treatment, fx, fy, fw, fh,
+                        editingThis ? 1.0f : 0.45f + lift * 0.55f);
+            } else {
+                paintThemedControl(e, fx, fy, fw, fh, on, editingThis ? 1.0F : lift);
+            }
             boolean invalid = editingThis && refusalFor(option, shown) != null;
             if (invalid) {
                 AeroTheme.innerGlow(s, fx, fy, fw, fh, 1.0f, palette.glowInvalid);
@@ -1235,7 +1598,6 @@ public final class AeroPainter {
             int argb = colourOf(option);
             int shipped = option instanceof Opt.Colour colour ? colour.shipped() : 0xFF000000;
             int shippedX = fx + swatch + 5;
-            // Each swatch is drawn over both white and near-black
             drawSwatch(s, fx + 2, fy + 2, swatch, fh - 4, argb, palette);
             drawSwatch(s, shippedX, fy + 2, swatch, fh - 4, shipped, palette);
             int left = shippedX + swatch + 7;
@@ -1251,14 +1613,22 @@ public final class AeroPainter {
                 s.fill(cx, fy + 2, cx + 1, fy + fh - 2,
                         invalid ? palette.valueInvalid : palette.accent);
             } else {
-                s.text(shown, left, textY, on ? palette.value : palette.textOff, false);
+                String text = shown;
+                if (paintingThemed) {
+                    text = fitMeasured(s, shown, fx + fw - 3 - left).text();
+                    noteCut(e, shown, text);
+                }
+                s.text(text, left, textY, on ? palette.value : palette.textOff, false);
             }
             s.unclip();
             return;
         }
-        AeroTheme.well(s, treatment, fx, fy, fw, fh,
-                editingThis ? 1.0f : 0.45f + lift * 0.55f);
-        // Keystrokes are not filtered; the warm glow is the only invalid feedback while typing.
+        if (!paintingThemed) {
+            AeroTheme.well(s, treatment, fx, fy, fw, fh,
+                    editingThis ? 1.0f : 0.45f + lift * 0.55f);
+        } else {
+            paintThemedControl(e, fx, fy, fw, fh, on, editingThis ? 1.0F : lift);
+        }
         boolean invalid = editingThis && refusalFor(option, shown) != null;
         if (invalid) {
             AeroTheme.innerGlow(s, fx, fy, fw, fh, 1.0f, palette.glowInvalid);
@@ -1282,9 +1652,26 @@ public final class AeroPainter {
             s.fill(cx, fy + 2, cx + 1, fy + fh - 2,
                     invalid ? palette.valueInvalid : palette.accent);
         } else {
-            s.text(display, left, textY, colour, false);
+            String text = display;
+            if (paintingThemed) {
+                text = fitMeasured(s, display, fx + fw - 3 - left).text();
+                noteCut(e, display, text);
+            }
+            s.text(text, left, textY, colour, false);
         }
         s.unclip();
+    }
+    private void paintThemedControl(Entry e, int x, int y, int width, int height, boolean on, float lift) {
+        themeSession.paintPageControl(e.section, x, y, width, height, e == focused || lift > 0.0F, !on, false);
+    }
+    private static void paintClippedControlLabel(AeroSurface s, String label, int x, int y, int width, int height,
+            int textY, int colour) {
+        s.clip(x, y, x + width, y + height);
+        try {
+            s.text(label, x + Math.max(0, width - s.textWidth(label)) / 2, textY, colour, false);
+        } finally {
+            s.unclip();
+        }
     }
     private int caretWidth(AeroSurface s, String text, int index) {
         if (text != caretText || index != caretIndex) {
@@ -1315,16 +1702,24 @@ public final class AeroPainter {
         AeroTheme.lipped(s, x, y, w, h, 1, palette.edgeLight, palette.edgeDark);
         AeroTheme.gloss(s, x, y, w, h, 0.9f);
     }
-    // Use argb(); pending() here returns a preset name or number, not the packed colour.
     private static int colourOf(Opt option) {
         return option instanceof Opt.Colour colour ? colour.argb() : 0xFF000000;
     }
     private void paintButton(AeroSurface s, Entry e, int y, int textY, boolean on,
             float lift, String label) {
-        int bw = FIELD_W;
+        int bw = paintColumn < 0 ? FIELD_W : themedFieldW;
         int bx = fieldX();
         int bh = e.h - 5;
         int by = y + 2;
+        if (paintingThemed) {
+            paintThemedControl(e, bx, by, bw, bh, on, lift);
+            BlendedPalette colours = themeSession.pagePalette(e.section);
+            Fitted cut = fitMeasured(s, label, bw - 8);
+            noteCut(e, label, cut.text());
+            paintClippedControlLabel(s, cut.text(), bx + 4, by, bw - 8, bh, textY,
+                    on ? colours.textPrimary : colours.textMuted);
+            return;
+        }
         AeroTheme.rounded(s, bx, by, bw, bh, AeroTheme.RADIUS_ROW,
                 AeroTheme.mix(palette.buttonTop, palette.accentDeep, 0.2f + lift * 0.35f),
                 palette.buttonBottom);
@@ -1338,7 +1733,6 @@ public final class AeroPainter {
         int sw = fitted.width();
         s.text(shown, bx + (bw - sw) / 2, textY, colour, false);
     }
-    // Shared by paintFooter and click()
     private static final int FOOTER_BTN_W = 54;
     private static final int FOOTER_BTN_H = 16;
     private int footerButtonY() {
@@ -1369,7 +1763,6 @@ public final class AeroPainter {
         Opt describedOption = described == null ? null : described.option;
         OptPage.Group describedGroup = describedOption == null && described != null
                 ? described.group : null;
-        // Refusal message takes priority over whatever the mouse is hovering.
         String refused = editingOption == null ? null : refusalFor(editingOption, editing);
         if (!footerBodyCached || footerDescribedOption != describedOption
                 || footerDescribedGroup != describedGroup
@@ -1410,7 +1803,6 @@ public final class AeroPainter {
         }
         s.unclip();
     }
-    // Invalidated by a change in body, width, line count, or font face
     private List<String> footerLines(AeroSurface s, String body, int width, int lines) {
         Object face = wrapFace(s);
         if (!body.equals(wrapText) || width != wrapWidth || lines != wrapLines || face != wrapFace) {
@@ -1451,7 +1843,6 @@ public final class AeroPainter {
         if (maxLines <= 0) {
             return out;
         }
-        // True when a word is left undrawn
         boolean dropped = false;
         int marked = -1;
         StringBuilder line = new StringBuilder();
@@ -1523,7 +1914,6 @@ public final class AeroPainter {
                 if (formatOnly(finished)) {
                     line.setLength(0);
                 } else if (pushLine(out, line, finished, maxLines)) {
-                    // An empty word here means consecutive spaces, not real text
                     dropped = textLeftUndrawn(word, b, end);
                     break;
                 }
@@ -1540,7 +1930,6 @@ public final class AeroPainter {
         if (out.size() < maxLines && !line.isEmpty()) {
             out.add(line.toString());
         }
-        // Runs only when text was shortened; if shaving empties the line, no mark is added.
         if (dropped && marked != out.size() - 1) {
             out.set(out.size() - 1,
                     shaveToColumn(s, out.get(out.size() - 1), maxWidth));
@@ -1661,7 +2050,6 @@ public final class AeroPainter {
         }
         return low;
     }
-    // Half-open, like inside(): rejects right at the edge
     public Entry entryAt(int mx, int my) {
         sync();
         Entry e = entryUnderPointer(mx, my);
@@ -1679,16 +2067,23 @@ public final class AeroPainter {
             return null;
         }
         Entry e = entries.get(low - 1);
+        if (themedGrid() && !e.isHeader()) {
+            if (e.column == 1 && mx < columnDivider() && low > 1) {
+                e = entries.get(low - 2);
+            }
+            int right = e.column == 0 ? columnDivider() - THEME_CHROME_GAP : geometryRowRight;
+            if (mx < rowLeft(e.column) || mx >= right) {
+                return null;
+            }
+        }
         return want < e.y + e.h ? e : null;
     }
     public int pageAt(int mx, int my) {
         sync();
         int x = menuX() + MARGIN;
-        // Half-open, like inside() and entryAt()
         if (mx < x || mx >= x + LIST_W) {
             return -1;
         }
-        // Bounds match the window paintPageList draws
         int rows = pageRows();
         int slot = (my - pageRowTop(0)) / PAGE_ROW_PITCH;
         if (slot < 0 || slot >= rows) {
@@ -1700,7 +2095,6 @@ public final class AeroPainter {
         }
         return pageTop(rows) + slot;
     }
-    // Highlight is stored directly, not derived from scroll each time
     public void selectPage(int index) {
         sync();
         if (index < 0 || index >= pages.size() || !sectionShown(index)) {
@@ -1708,16 +2102,19 @@ public final class AeroPainter {
         }
         focused = null;
         current = index;
-        scroll = clampOffset(sectionStart(index), maxScroll());
-        pagePhase = 0.0f;
-        // Runs after index and scroll are updated
+        if (themed()) {
+            pinnedPage = index;
+            themeSession.scrollPhysics().jumpTo(sectionStart(index));
+        } else {
+            scroll = clampOffset(sectionStart(index), maxScroll());
+            pagePhase = 0.0f;
+        }
         commitEditing();
     }
     void restorePage(int index) {
         selectPage(index);
         pagePhase = 1.0f;
     }
-    // The click region covers the whole gutter
     private boolean overBar(int mx, int my, int trackY, int trackH) {
         return inside(mx, my, geometryRowRight, trackY,
                 geometryContentRight - geometryRowRight, trackH);
@@ -1737,19 +2134,30 @@ public final class AeroPainter {
         int barH = barHeight(trackH);
         int room = Math.max(1, trackH - barH);
         int at = Math.max(0, Math.min(room, my - barGrab - y));
+        pinnedPage = -1;
         scroll = (int) ((long) at * maxScroll() / room);
+        if (themed()) {
+            themeSession.scrollPhysics().snapTo(scroll);
+        }
         clampScroll();
         current = sectionAt(scroll);
     }
     public boolean click(int mx, int my, int button) {
         sync();
+        if (themed()) {
+            if (button == 0 && clickThemedFooter(mx, my)) {
+                return true;
+            }
+            if (themeSession.isPeekMode() || !overThemedChrome(mx, my)) {
+                return button == 0 && themeSession.handleCenterpieceClick(mx, my);
+            }
+        }
         int p = pageAt(mx, my);
         if (p >= 0) {
             if (!sectionShown(p)) {
                 return true;
             }
             selectPage(p);
-            // Invariant: searchFocused must equal (focusZone == 2); every exit must keep that true.
             searchFocused = false;
             focusZone = 0;
             pressAction.run();
@@ -1759,7 +2167,6 @@ public final class AeroPainter {
         int sw = searchRight() - sx;
         if (inside(mx, my, sx, searchTop(), sw, searchHeight())) {
             searchFocused = true;
-            // Moving focus to search commits the field, same as Done and Apply do.
             commitEditing();
             focusZone = 2;
             return true;
@@ -1770,13 +2177,13 @@ public final class AeroPainter {
         int btnY = footerButtonY();
         int doneX = footerDoneX();
         int applyX = footerApplyX();
-        if (inside(mx, my, doneX, btnY, btnW, btnH)) {
+        if (!themed() && inside(mx, my, doneX, btnY, btnW, btnH)) {
             commitEditing();
             pressAction.run();
             doneAction.run();
             return true;
         }
-        if (inside(mx, my, applyX, btnY, btnW, btnH)) {
+        if (!themed() && inside(mx, my, applyX, btnY, btnW, btnH)) {
             commitEditing();
             pressAction.run();
             applyAction.run();
@@ -1789,7 +2196,6 @@ public final class AeroPainter {
         }
         Entry e = entryAt(mx, my);
         if (e == null) {
-            // A click on no row still commits the field, same as clicking a different row.
             commitEditing();
             return false;
         }
@@ -1804,7 +2210,6 @@ public final class AeroPainter {
         }
         Object before = pendingOf(option);
         if (button == InputConstants.MOUSE_BUTTON_RIGHT) {
-            // Only case that discards, not commits
             if (editingOption == option) {
                 stopEditing();
             }
@@ -1823,13 +2228,13 @@ public final class AeroPainter {
                 pressIfChanged(option, before);
             }
             case ENUM -> {
-                // Splits at the enum control's own centre
                 int cw = enumWidths.getOrDefault(option, CONTROL_W);
-                cycle(option, mx < enumLeft(cw) + cw / 2 ? -1 : 1);
+                int right = themedGrid() && e.column == 0 ? columnDivider() - THEME_CHROME_GAP : rowRight();
+                cycle(option, mx < right - GUTTER - cw + cw / 2 ? -1 : 1);
                 pressIfChanged(option, before);
             }
             case SLIDER -> {
-                if (mx >= controlX()) {
+                if (mx >= inputControlX(e)) {
                     draggingSlider = true;
                     dragOption = option;
                     dragFrom = before;
@@ -1867,7 +2272,6 @@ public final class AeroPainter {
             pressAction.run();
         }
     }
-    // Snaps to a whole number of steps from the row's minimum; interval 0 means no snapping.
     private static double snapToInterval(double raw, double min, double interval) {
         if (!(interval > 0)) {
             return raw;
@@ -1897,7 +2301,6 @@ public final class AeroPainter {
         }
         return answer;
     }
-    // Takes the last stop at or below max, not a clamp to max
     private static void setSnapped(Opt.Ranged slider, double raw) {
         double min = slider.min();
         double max = slider.max();
@@ -1905,7 +2308,6 @@ public final class AeroPainter {
         double bounded = raw > max ? max : (raw < min ? min : raw);
         double snapped = snapToInterval(bounded, min, interval);
         if (interval > 0 && snapped > max) {
-            // Guards a stop that overshoots max by float rounding
             snapped = (float) snapped == (float) max ? max : Math.max(min, snapped - interval);
         }
         slider.setNumber(snapped);
@@ -1916,27 +2318,37 @@ public final class AeroPainter {
             return;
         }
         Opt.Ranged slider = (Opt.Ranged) focused.option;
-        float t = AeroTheme.clamp01((float) (mx - controlX()) / Math.max(1, CONTROL_W));
+        float t = AeroTheme.clamp01((float) (mx - inputControlX(focused)) / Math.max(1, CONTROL_W));
         double raw = slider.min() + t * (slider.max() - slider.min());
         setSnapped(slider, raw);
     }
-    // Scroll and click both read the section through sectionAt
+    private int inputControlX(Entry e) {
+        return themedGrid() && e.column == 0 ? columnDivider() - THEME_CHROME_GAP - GUTTER - CONTROL_W : controlX();
+    }
     public boolean scroll(double amount) {
         sync();
         int max = maxScroll();
         if (max == 0) {
             return false;
         }
+        if (themed()) {
+            pinnedPage = -1;
+            themeSession.scrollPhysics().onWheel(amount);
+            syncThemedScroll();
+            return true;
+        }
         scroll = clampOffset(scroll - (int) Math.round(amount * ROW_H), max);
         current = sectionAt(scroll);
         return true;
     }
-    // The row's pending value, or null for a row that holds none
     private static Object pendingOf(Opt option) {
         return option instanceof Opt.Value<?> value ? value.pending() : null;
     }
     private void pressIfChanged(Opt option, Object before) {
         if (!Objects.equals(before, pendingOf(option))) {
+            if (themed() && !query.isEmpty()) {
+                pendingRebuild = true;
+            }
             pressAction.run();
         }
     }
@@ -1964,9 +2376,7 @@ public final class AeroPainter {
         double raw = slider.number() + by * interval;
         setSnapped(slider, raw);
     }
-    // Longest a field may hold, in UTF-16 units; typing and pasting both refuse a split pair whole
     public static final int FIELD_MAX = 256;
-    // Accepts any char >= space, including section symbol and DEL; not vanilla's chat filter
     private static boolean typeable(int c) {
         return c >= ' ';
     }
@@ -1988,7 +2398,6 @@ public final class AeroPainter {
         caret = 0;
         editScroll = 0;
     }
-    // Accepts digits with optional sign, checked against the option's own range only.
     private static boolean numberAccepted(Opt option, String text) {
         boolean negative = text.startsWith("-");
         int from = negative ? 1 : 0;
@@ -2015,7 +2424,6 @@ public final class AeroPainter {
     public boolean editingInvalid() {
         return editingOption != null && refusalFor(editingOption, editing) != null;
     }
-    // Returns null when nothing is refused; colour rows never warn while typing, only at commit
     private String refusalFor(Opt option, String text) {
         if (refusalCacheActive && refusalCached && option == refusalOption
                 && text == refusalText) {
@@ -2037,7 +2445,6 @@ public final class AeroPainter {
         }
         return result;
     }
-    // Fallback text must stay byte-identical to the string in en_us.json
     private static String refusal(Opt option, String text) {
         Opt.Ranged bounds = (Opt.Ranged) option;
         return plain(net.minecraft.network.chat.Component.translatableWithFallback(
@@ -2055,7 +2462,6 @@ public final class AeroPainter {
                         + "Leave this field to restore the set colour.",
                 text.isEmpty() ? "An empty box" : "\"" + text + "\""));
     }
-    // Reaches the binding only on leaving the field
     public void commitEditing() {
         if (editingOption == null) {
             return;
@@ -2065,9 +2471,11 @@ public final class AeroPainter {
             return;
         }
         if (editingOption.kind() == Kind.NUMBER) {
-            // Invalid input is refused, not clamped; a bad value never overwrites what was there.
             if (numberAccepted(editingOption, editing)) {
                 ((Opt.Ranged) editingOption).setNumber(Long.parseLong(editing));
+                if (themed() && !query.isEmpty()) {
+                    pendingRebuild = true;
+                }
             }
             stopEditing();
             return;
@@ -2075,6 +2483,9 @@ public final class AeroPainter {
         Opt.Editable field = (Opt.Editable) editingOption;
         if (field.accepts(editing)) {
             field.setFromString(editing);
+            if (themed() && !query.isEmpty()) {
+                pendingRebuild = true;
+            }
         }
         stopEditing();
     }
@@ -2084,7 +2495,6 @@ public final class AeroPainter {
     public boolean codepointTyped(int codepoint) {
         int units = Character.charCount(codepoint);
         if (searchFocused) {
-            // Returning true here, even when full, stops the key from also reaching Screen.charTyped.
             if (!typeable(codepoint)) {
                 return true;
             }
@@ -2130,8 +2540,6 @@ public final class AeroPainter {
                 + editing.substring(editing.offsetByCodePoints(caret, 1));
         return true;
     }
-    // Must not reference Minecraft client types
-    // Puts clipboard text into the field; drops newlines and tabs, same validation as typing
     public boolean paste(String text) {
         if (!pasteTarget()) {
             return false;
@@ -2157,7 +2565,6 @@ public final class AeroPainter {
     public boolean pasteTarget() {
         return searchFocused || editingOption != null;
     }
-    // Cuts to fit rather than dropping the paste; length is counted after filtering, not before
     private static String typeableRun(String text, int room) {
         if (room <= 0) {
             return "";
@@ -2191,14 +2598,12 @@ public final class AeroPainter {
         }
         return out.toString();
     }
-    // Copies the whole field's text; there is no selection to copy part of it
     public String copy() {
         if (searchFocused) {
             return query.isEmpty() ? null : query;
         }
         return editingOption == null || editing.isEmpty() ? null : editing;
     }
-    // Copies the field then clears it; does not commit
     public String cut() {
         String taken = copy();
         if (taken == null) {
@@ -2277,7 +2682,6 @@ public final class AeroPainter {
         pressIfChanged(option, before);
         return true;
     }
-    // Moving focus also scrolls to keep the row visible
     private void moveFocus(int dy) {
         int count = 0;
         int at = -1;
@@ -2326,6 +2730,7 @@ public final class AeroPainter {
         scrollTo(focused);
     }
     private void scrollTo(Entry e) {
+        pinnedPage = -1;
         int view = viewHeight();
         if (e.y < scroll) {
             scroll = e.y;
@@ -2333,12 +2738,14 @@ public final class AeroPainter {
             scroll = e.y + e.h - view;
         }
         clampScroll();
-        // Keeps the left column's section in sync with the focused row's own section.
         if (sectionAt(scroll) != e.section) {
             scroll = clampOffset(sectionStart(e.section), maxScroll());
             if (e.y + e.h > scroll + view) {
                 scroll = clampOffset(e.y + e.h - view, maxScroll());
             }
+        }
+        if (themed()) {
+            themeSession.scrollPhysics().snapTo(scroll);
         }
         current = e.section;
     }
@@ -2349,7 +2756,6 @@ public final class AeroPainter {
             return true;
         }
         if (editingOption != null) {
-            // Enter on an invalid value keeps the field open, instead of discarding the typing.
             if (editingInvalid()) {
                 return true;
             }

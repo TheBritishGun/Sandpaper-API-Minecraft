@@ -9,29 +9,29 @@ public final class CoreLog {
     private static volatile BiConsumer<String, Throwable> sink = STANDARD_ERROR;
     private static volatile Consumer<String> verboseSink = VERBOSE_STANDARD_ERROR;
     private static volatile boolean verboseWanted = false;
-    // Limits the broken-sink report to once; the sink is still tried.
+    // Set once a verbose sink has thrown.
     private static volatile boolean verboseSinkBroken = false;
-    // Lines to skip after a failure; a countdown, not a permanent latch.
+    // Verbose lines left to skip.
     private static volatile int verboseSinkSkipsLeft = 0;
     static final int VERBOSE_SINK_COOLDOWN_LINES = 1_000;
     private CoreLog() {
     }
-    // Sends all reports here instead of stderr; the last caller wins.
+    // Sends all reports to this sink.
     public static void install(BiConsumer<String, Throwable> where) {
         sink = Objects.requireNonNull(where, "where");
     }
-    // Sends verbose detail here instead of stderr; independent of install()'s sink.
+    // Sends verbose detail to this sink.
     public static void installVerbose(Consumer<String> where) {
         verboseSink = Objects.requireNonNull(where, "where");
         verboseSinkBroken = false;
         verboseSinkSkipsLeft = 0;
     }
-    // Turns verbose logging on or off; ends any cooldown. Faults are reported regardless.
+    // Turns verbose logging on or off.
     public static void setVerbose(boolean on) {
         verboseSinkSkipsLeft = 0;
         verboseWanted = on;
     }
-    // Whether verbose detail is wanted; check before building an expensive message.
+    // Whether verbose detail is wanted.
     public static boolean isVerbose() {
         return verboseWanted;
     }

@@ -34,10 +34,8 @@ public final class FontResourcePack extends AbstractPackMetadataResources implem
     public static final String PACK_ID = "sandpaper_fonts";
     private static final String FONT_DIRECTORY = "font/";
     private static final String FONT_DEFINITION_SUFFIX = ".json";
-    // Vanilla's default font; every unstyled string resolves to it.
     static final String DEFAULT_NAMESPACE = "minecraft";
     static final String DEFAULT_PATH = "font/default.json";
-    // Must match DEFAULT_PATH's resolved id; a test keeps it in sync, not code.
     static final String FALLBACK_FONT = DEFAULT_NAMESPACE + ":default";
     private static final Logger LOGGER = LoggerFactory.getLogger(Sandpaper.MOD_ID);
     private static String definitionPath(String id) {
@@ -76,7 +74,6 @@ public final class FontResourcePack extends AbstractPackMetadataResources implem
             return bytes;
         }
     }
-    // A snapshot of current settings; call the supplier fresh, never cache it.
     public record Selection(String fontId, boolean everything, float size, float oversample) {
         public static Selection of(String fontId, boolean everything,
                 float size, float oversample) {
@@ -98,24 +95,20 @@ public final class FontResourcePack extends AbstractPackMetadataResources implem
         this.selection = selection;
         this.definitions = definitions;
     }
-    // Null unless a face is chosen, enabled, and its file still exists.
     private Face overriding(Selection current) {
         if (current == null || !current.everything() || current.fontId().isEmpty()) {
             return null;
         }
         return library.face(current.fontId());
     }
-    // Checks the face can load before returning its JSON; silent failures are logged here.
     private byte[] definition(Face face, Selection chosen, String fallback) {
         byte[] json = definitions.definition(face, chosen, fallback);
         announceProblems(face);
         return json;
     }
-    // Falls back to vanilla for glyphs the chosen face does not have.
     private byte[] ownFontDefinition(Face face) {
         return definition(face, selection.get(), FALLBACK_FONT);
     }
-    // Never pass the default font as its own fallback.
     private byte[] defaultFontDefinition(Face published, Selection requested) {
         Selection chosen = selection.get();
         Face current = overriding(chosen);
@@ -125,7 +118,6 @@ public final class FontResourcePack extends AbstractPackMetadataResources implem
         }
         return definition(current, chosen, null);
     }
-    // Logs each face's load failure once, then stays quiet.
     private void announceProblems(Face face) {
         if (!probed.add(face.id())) {
             return;
@@ -268,7 +260,6 @@ public final class FontResourcePack extends AbstractPackMetadataResources implem
             output.accept(definition, () -> stream(ownFontDefinition(face)));
         }
     }
-    // Claims minecraft only while actually overriding its font.
     @Override
     public Set<String> getNamespaces(PackType type) {
         if (type != PackType.CLIENT_RESOURCES) {

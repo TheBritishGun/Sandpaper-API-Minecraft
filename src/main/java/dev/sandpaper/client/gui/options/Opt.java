@@ -13,21 +13,16 @@ import java.util.logging.Logger;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
-// One row on the settings screen: a name, description, and a changeable value.
 public abstract class Opt {
     private static final Logger LOGGER = Logger.getLogger(Opt.class.getName());
     public enum Kind { TOGGLE, SLIDER, NUMBER, ENUM, STRING, COLOUR, BUTTON, PLAIN }
-    // A row the painter can drag, nudge with an arrow key, or bound a typed number by.
     public interface Ranged {
         double min();
         double max();
-        // The step the value snaps to, or 0 for a value that does not snap.
         double interval();
         double number();
-        // Refuses NaN and keeps the current value; clamps everything else, including infinity.
         void setNumber(double value);
     }
-    // A row whose value is typed rather than dragged or cycled.
     public interface Editable {
         boolean accepts(String text);
         void setFromString(String text);
@@ -44,11 +39,9 @@ public abstract class Opt {
     public final Component name() {
         return name;
     }
-    // The prose for the tooltip pane, empty for the rows that carry none.
     public final Component description() {
         return description;
     }
-    // False for a row that is shown but cannot be changed yet, and drawn greyed.
     public final boolean available() {
         return available;
     }
@@ -58,19 +51,17 @@ public abstract class Opt {
         }
     }
     public abstract Kind kind();
-    // The value as it is written on the right of the row.
     public abstract String format();
-    // Whether the pending value differs from the one the mod ships with.
     public boolean changed() {
         return false;
     }
-    // Put the row back to the shipped default. Right-click does this.
+    public boolean edited() {
+        return false;
+    }
     public void reset() {
     }
-    // Write the pending value into the config. Apply and Done, and nothing else.
     public void apply() {
     }
-    // Never throws.
     private static String named(Component name) {
         if (name == null) {
             return "an unnamed settings row";
@@ -105,7 +96,6 @@ public abstract class Opt {
         checkedSink(name, sink);
         return name;
     }
-    // Strips only the two grouping gap chars; must never touch the decimal separator.
     private static String withoutGroupingGaps(String written) {
         int first = -1;
         for (int i = 0; i < written.length(); i++) {
@@ -128,25 +118,30 @@ public abstract class Opt {
         }
         return kept.toString();
     }
-    // A row bound to a config value; one option can back two fields via its sink.
     public abstract static class Value<T> extends Opt {
         private final T defaultValue;
         private final Consumer<T> sink;
         private final List<Consumer<T>> listeners = new ArrayList<>();
         private T pending;
+        private T initial;
         private int stagings;
+        private int applies;
         protected Value(Component name, Component description,
                 T defaultValue, T current, Consumer<T> sink) {
             super(name, description);
             this.defaultValue = defaultValue;
             this.sink = checkedSink(name, sink);
             this.pending = current;
+            this.initial = current;
         }
         public final T pending() {
             return pending;
         }
         public final T defaultValue() {
             return defaultValue;
+        }
+        protected final T initial() {
+            return initial;
         }
         protected final String labelledOverride(Function<T, String> text) {
             if (text != null) {
@@ -157,7 +152,6 @@ public abstract class Opt {
             }
             return null;
         }
-        // A listener that stages a newer value ends this dispatch; one that throws costs only itself.
         public final void set(T value) {
             if (Objects.equals(pending, value)) {
                 return;
@@ -199,6 +193,10 @@ public abstract class Opt {
             return !Objects.equals(pending, defaultValue);
         }
         @Override
+        public boolean edited() {
+            return !Objects.equals(pending, initial);
+        }
+        @Override
         public final void reset() {
             pending = defaultValue;
             int staging = ++stagings;
@@ -231,10 +229,14 @@ public abstract class Opt {
         }
         @Override
         public void apply() {
-            sink.accept(pending);
+            int applying = ++applies;
+            T applied = pending;
+            sink.accept(applied);
+            if (applies == applying) {
+                initial = applied;
+            }
         }
     }
-    // A switch.
     public static final class Bool extends Value<Boolean> {
         private static Object shownIn = new Object();
         private static String on;
@@ -247,7 +249,6 @@ public abstract class Opt {
         public Kind kind() {
             return Kind.TOGGLE;
         }
-        // Uses vanilla's own On/Off strings, refreshed when the Language object changes.
         @Override
         public String format() {
             Language language = Language.getInstance();
@@ -261,7 +262,6 @@ public abstract class Opt {
             return Boolean.TRUE.equals(pending()) ? on : off;
         }
     }
-    // A whole number: a slider, or a typed field that refuses an out of range value.
     public static final class Ints extends Value<Integer> implements Ranged {
         private final int low;
         private final int high;
@@ -270,7 +270,6 @@ public abstract class Opt {
         private final Function<Integer, String> text;
         private Integer shownFor;
         private Locale shownIn;
-        // Caches the last formatted text, valid for the same value and locale.
         private String shown;
         public Ints(Component name, Component description, int defaultValue, int current,
                 Consumer<Integer> sink, int low, int high, int step) {
@@ -296,13 +295,11 @@ public abstract class Opt {
             }
             return step;
         }
-        // The same field, typed rather than dragged.
         public static Ints typed(Component name, Component description, int defaultValue,
                 int current, Consumer<Integer> sink, int low, int high) {
             return new Ints(name, description, defaultValue, current, sink, low, high,
                     1, true, null);
         }
-        // Labels the value instead of a bare number.
         public static Ints labelled(Component name, Component description,
                 int defaultValue, int current, Consumer<Integer> sink,
                 int low, int high, int step, Function<Integer, String> text) {
@@ -313,7 +310,6 @@ public abstract class Opt {
         public Kind kind() {
             return typed ? Kind.NUMBER : Kind.SLIDER;
         }
-        // Checks isBlank, not just null.
         @Override
         public String format() {
             String written = labelledOverride(text);
@@ -324,7 +320,6 @@ public abstract class Opt {
                 return Integer.toString(pending());
             }
             Integer value = pending();
-            // The FORMAT category locale, the same one String.format would use by default.
             Locale locale = Locale.getDefault(Locale.Category.FORMAT);
             if (shown == null || value != shownFor || locale != shownIn) {
                 shown = withoutGroupingGaps(String.format("%,d", pending()));
@@ -349,7 +344,6 @@ public abstract class Opt {
         public double number() {
             return pending();
         }
-        // Math.round(NaN) is 0.
         @Override
         public void setNumber(double value) {
             if (Double.isNaN(value)) {
@@ -363,7 +357,6 @@ public abstract class Opt {
             set(clamped);
         }
     }
-    // A fractional number, always a slider.
     public static final class Floats extends Value<Float> implements Ranged {
         private final float low;
         private final float high;
@@ -371,7 +364,6 @@ public abstract class Opt {
         private final Function<Float, String> text;
         private Float shownFor;
         private Locale shownIn;
-        // Caches the last formatted text, valid for the same value and locale.
         private String shown;
         public Floats(Component name, Component description, float defaultValue,
                 float current, Consumer<Float> sink, float low, float high, float step) {
@@ -421,7 +413,6 @@ public abstract class Opt {
         private static float zeroWithoutSign(float value) {
             return value == 0.0f ? 0.0f : value;
         }
-        // Labels the value instead of a bare fraction, replacing the one decimal place format.
         public static Floats labelled(Component name, Component description,
                 float defaultValue, float current, Consumer<Float> sink,
                 float low, float high, float step, Function<Float, String> text) {
@@ -432,7 +423,6 @@ public abstract class Opt {
         public Kind kind() {
             return Kind.SLIDER;
         }
-        // Falls through like Ints#format, including its null vs blank distinction.
         @Override
         public String format() {
             String written = labelledOverride(text);
@@ -440,7 +430,6 @@ public abstract class Opt {
                 return written;
             }
             Float value = pending();
-            // The FORMAT category locale, the same one String.format would use by default.
             Locale locale = Locale.getDefault(Locale.Category.FORMAT);
             if (shown == null || value != shownFor || locale != shownIn) {
                 shown = withoutGroupingGaps(String.format("%,.1f", pending()));
@@ -473,7 +462,15 @@ public abstract class Opt {
             }
             return super.changed();
         }
-        // Drops NaN rather than replacing it with the default.
+        @Override
+        public boolean edited() {
+            Float held = pending();
+            Float was = initial();
+            if (held != null && was != null && held == 0.0f && was == 0.0f) {
+                return false;
+            }
+            return super.edited();
+        }
         @Override
         public void setNumber(double value) {
             if (Double.isNaN(value)) {
@@ -481,7 +478,6 @@ public abstract class Opt {
             }
             float clamped = clamp(value, low, high);
             Float current = pending();
-            // Compares bit patterns; positive and negative zero count as different.
             if (current != null && Float.floatToRawIntBits(current)
                     == Float.floatToRawIntBits(clamped)) {
                 return;
@@ -489,7 +485,6 @@ public abstract class Opt {
             set(zeroWithoutSign(clamped));
         }
     }
-    // One of a list, stepped with arrows; refuses any value not on that list at construction.
     public static final class Cycle<T> extends Value<T> {
         private static final Component MISSING_LABEL = Component.empty();
         private final List<T> values;
@@ -510,7 +505,6 @@ public abstract class Opt {
                 T defaultValue, T current, Consumer<T> sink,
                 Function<T, Component> label, LongSupplier labelRevision) {
             super(name, description, defaultValue, current, sink);
-            // List.copyOf refuses a null element before any guard below runs.
             List<T> all = fixed(choices);
             if (current == null || !all.contains(current)) {
                 throw new IllegalArgumentException("the stored choice of " + named(name)
@@ -554,12 +548,10 @@ public abstract class Opt {
         private static <T> List<T> fixed(List<T> choices) {
             return choices instanceof Indices ? choices : List.copyOf(choices);
         }
-        // Indices cannot repeat.
         private static boolean repeats(List<?> all) {
             return !(all instanceof Indices)
                     && new HashSet<>(all).size() != all.size();
         }
-        // A virtual list of 0 to count minus 1; one object, no boxed positions.
         private static final class Indices extends AbstractList<Integer>
                 implements RandomAccess {
             private final int count;
@@ -589,7 +581,6 @@ public abstract class Opt {
         public Kind kind() {
             return Kind.ENUM;
         }
-        // Cached by value identity, language and label revision.
         @Override
         public String format() {
             T value = pending();
@@ -604,12 +595,10 @@ public abstract class Opt {
             }
             return shown;
         }
-        // Label of the staged choice, before it is flattened to text like format().
         public Component label() {
             int current = index();
             return current < 0 ? missingLabel() : labelFor(values.get(current));
         }
-        // Label of one choice, read without staging it or changing the current value.
         public Component labelAt(int index) {
             return labelFor(values.get(Math.max(0, Math.min(values.size() - 1, index))));
         }
@@ -630,7 +619,6 @@ public abstract class Opt {
         public int count() {
             return values.size();
         }
-        // Cached index, revalidated against pending().
         public int index() {
             T current = pending();
             if (current == null) {
@@ -647,7 +635,6 @@ public abstract class Opt {
             }
         }
     }
-    // Free text option, either plain or with a rule that can refuse it.
     public static final class Text extends Value<String> implements Editable {
         private final Function<String, String> refusing;
         private final String given;
@@ -666,7 +653,6 @@ public abstract class Opt {
             this.refusing = refusing;
             this.given = pending();
         }
-        // Refuses values for which refusing returns non-null; refusing must not be null.
         public static Text refusing(Component name, Component description,
                 String defaultValue, String current, Consumer<String> sink,
                 Function<String, String> refusing) {
@@ -682,7 +668,6 @@ public abstract class Opt {
         public String format() {
             return pending();
         }
-        // Why the given text would be refused, or null if it would be accepted.
         public String refusal(String value) {
             return refusing == null ? null : refusing.apply(value == null ? "" : value);
         }
@@ -690,7 +675,6 @@ public abstract class Opt {
         public boolean accepts(String value) {
             return refusal(value) == null;
         }
-        // Re-checks refusal here too; a caller may skip accepts() first.
         @Override
         public void setFromString(String value) {
             String typed = value == null ? "" : value;
@@ -712,25 +696,16 @@ public abstract class Opt {
             throw new IllegalStateException(refused);
         }
     }
-    // A named colour preset, or CUSTOM with a packed ARGB; custom is 0 otherwise.
     public record Swatch(Preset preset, int custom) {
-        // Colour presets; a duplicate in dev.landnav.config.ColourSwatch must be kept in sync.
         public enum Preset {
             AMBER(rgba(0xE0A33A, 0xDD), "Amber"),
             RED(rgba(0xD62A2A, 0xDD), "Red"),
-            // The hue the settings screens are visually built around.
             TEAL(rgba(0x46DCC6, 0xDD), "Teal"),
-            // Draws nothing; the only preset with alpha 0.
             CLEAR(rgba(0x000000, 0x00), "Clear"),
-            // Near black, not pure black.
             BLACK(rgba(0x1A1A1A, 0xDD), "Black"),
-            // Off-white, not pure white; #FFFFFFFF is still reachable via hex.
             WHITE(rgba(0xEAF6F8, 0xDD), "White"),
-            // Must stay a true neutral; keep red, green and blue equal.
             GREY(rgba(0x808080, 0xDD), "Grey"),
-            // argb here is unused; the real default comes from the row's own shipped value.
             DEFAULT(0, "Default"),
-            // CUSTOM holds no colour itself; the real value is Swatch's custom field.
             CUSTOM(0, "Custom");
             private final int argb;
             private final String label;
@@ -738,18 +713,15 @@ public abstract class Opt {
                 this.argb = argb;
                 this.label = label;
             }
-            // values() clones its backing array on every call.
             private static final Preset[] VALUES = values();
             private static int rgba(int rgb, int alpha) {
                 return (alpha << 24) | (rgb & 0xFFFFFF);
             }
-            // What the row's colour field writes and Swatch.parse reads back.
             public String label() {
                 return label;
             }
         }
         private static final String HEX_DIGITS = "0123456789ABCDEF";
-        // The value an untouched row holds: the field's own shipped colour.
         public static final Swatch DEFAULT = new Swatch(Preset.DEFAULT, 0);
         public Swatch {
             preset = preset == null ? Preset.DEFAULT : preset;
@@ -761,7 +733,6 @@ public abstract class Opt {
         public static Swatch custom(int argb) {
             return new Swatch(Preset.CUSTOM, argb);
         }
-        // The packed ARGB to draw; shipped is what DEFAULT resolves to on this row.
         public int resolve(int shipped) {
             if (preset == Preset.DEFAULT) {
                 return shipped;
@@ -771,14 +742,12 @@ public abstract class Opt {
             }
             return preset.argb;
         }
-        // The preset's label, or #RRGGBBAA when custom; read back by parse().
         public String format() {
             if (preset != Preset.CUSTOM) {
                 return preset.label();
             }
             char[] digits = new char[9];
             digits[0] = '#';
-            // custom is ARGB; rotated left 8 to write it out as RGBA hex.
             int rgba = Integer.rotateLeft(custom, 8);
             for (int i = 8; i > 0; i--) {
                 digits[i] = HEX_DIGITS.charAt(rgba & 0xF);
@@ -786,13 +755,11 @@ public abstract class Opt {
             }
             return new String(digits);
         }
-        // Parses a preset name or hex text into a Swatch; names are tried before hex digits.
         public static Swatch parse(String text, int alphaWhenAbsent) {
             if (text == null) {
                 return null;
             }
             String value = text.trim();
-            // Case-insensitive on name(); also matches label().
             for (Preset candidate : Preset.VALUES) {
                 if (candidate != Preset.CUSTOM
                         && value.equalsIgnoreCase(candidate.name())) {
@@ -818,31 +785,25 @@ public abstract class Opt {
                 }
             }
             if (length == 6) {
-                // Zero alphaWhenAbsent means prior swatch was CLEAR; treated as opaque, not invisible.
                 int kept = alphaWhenAbsent & 0xFF;
                 alpha = kept == 0 ? 0xFF : kept;
             }
             return custom((alpha << 24) | rgb);
         }
     }
-    // An option row for a colour, held as a Swatch (a preset or a custom ARGB).
     public static final class Colour extends Value<Swatch> implements Editable {
         private final int shipped;
         private Swatch formattedFor;
-        // Cached by Swatch reference; Value.set only restages a changed one.
         private String formatted;
-        // shipped is the field's packed ARGB default; current is what the config holds now.
         public Colour(Component name, Component description, int shipped,
                 Swatch current, Consumer<Swatch> sink) {
             super(name, description, Swatch.DEFAULT,
                     current == null ? Swatch.DEFAULT : current, sink);
             this.shipped = shipped;
         }
-        // The field's own shipped colour, as packed ARGB.
         public int shipped() {
             return shipped;
         }
-        // The staged colour as packed ARGB; use this, not pending(), where a number is wanted.
         public int argb() {
             return pending().resolve(shipped);
         }
@@ -850,7 +811,6 @@ public abstract class Opt {
         public Kind kind() {
             return Kind.COLOUR;
         }
-        // The preset's label, or #RRGGBBAA; must round-trip through parse().
         @Override
         public String format() {
             Swatch value = pending();
@@ -872,17 +832,14 @@ public abstract class Opt {
             }
         }
     }
-    // A row that runs an action when pressed and holds no value.
     public static final class Action extends Opt {
         private final Component text;
         private final Runnable action;
         public Action(Component name, Component description, Component text,
                 Runnable action) {
             super(name, description);
-            // text must never be null.
             this.text = Objects.requireNonNull(text, () -> named(name)
                     + " has no label.");
-            // action must not be null.
             this.action = Objects.requireNonNull(action, () -> named(name)
                     + " has no action.");
         }

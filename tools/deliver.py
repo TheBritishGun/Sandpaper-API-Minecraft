@@ -15,7 +15,7 @@ USERPROFILE = Path(os.environ.get("USERPROFILE", Path.home()))
 DEFAULT_INSTALLER_ROOT = USERPROFILE / "Desktop" / "Open-Map AIO installers"
 DEFAULT_PROFILE_MODS = (USERPROFILE / "AppData" / "Roaming" / "ModrinthApp" /
                         "profiles" / "Fabric-26.2-migrated" / "mods")
-# The Minecraft version of the profile above; a jar built for another version never goes in.
+# Minecraft version of the profile.
 PROFILE_MINECRAFT_VERSION = "26.2"
 
 

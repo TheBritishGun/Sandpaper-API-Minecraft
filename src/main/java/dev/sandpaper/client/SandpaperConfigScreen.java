@@ -27,15 +27,13 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-// Rows write straight into the live config; Escape calls no sink.
 public final class SandpaperConfigScreen implements SettingsContributor {
     private static final Logger LOGGER = LoggerFactory.getLogger(Sandpaper.MOD_ID);
-    // One id: a second failed save replaces the notice instead of stacking.
     private static final SystemToast.SystemToastId SAVE_FAILED_TOAST =
             new SystemToast.SystemToastId();
     private static final SystemToast.SystemToastId FONT_PICK_DROPPED_TOAST =
             new SystemToast.SystemToastId();
-    // Min share slider percent, derived from SandpaperConfig.MIN_SHARE.
+    // Minimum share slider percent.
     private static final int MIN_SHARE_PERCENT =
             sharePercent(SandpaperConfig.MIN_SHARE, Integer.MIN_VALUE, Integer.MAX_VALUE);
     // Top of both share sliders.
@@ -56,9 +54,9 @@ public final class SandpaperConfigScreen implements SettingsContributor {
             Identifier.fromNamespaceAndPath(Sandpaper.MOD_ID, "appearance");
     private static final int FONT_SIZE_STEP = 5;
     private static final float OVERSAMPLE_STEP = 0.5f;
-    // The treatment the open screen draws in; not the saved one until Apply.
+    private static boolean stagedSectionThemes = false;
     private static AeroTheme.Treatment stagedTreatment = AeroTheme.Treatment.AERO;
-    // Index into SandpaperConfig.COLOURS for the staged theme and accent rows.
+    // Indexes of the staged theme and accent.
     private static int stagedThemeIndex = SandpaperConfig.COLOURS.indexOf(
             SandpaperConfig.DEFAULT_COLOUR);
     private static int stagedAccentIndex = SandpaperConfig.COLOURS.indexOf(
@@ -66,20 +64,22 @@ public final class SandpaperConfigScreen implements SettingsContributor {
     // Called reflectively by the mod loader.
     public SandpaperConfigScreen() {
     }
-    // Opens the shared settings screen. The title names no mod.
+    // Opens the shared settings screen.
     public static Screen create(Screen parent) {
         SandpaperConfig live = Sandpaper.config();
         stagedTreatment = treatmentNamed(live.treatment);
+        stagedSectionThemes = live.sectionThemes;
         stagedThemeIndex = SandpaperConfig.COLOURS.indexOf(
                 SandpaperConfig.normaliseColour(live.themeColour));
         stagedAccentIndex = SandpaperConfig.COLOURS.indexOf(
                 SandpaperConfig.normaliseColour(live.accentColour));
         AeroPainter.setTreatmentSupplier(() -> stagedTreatment);
+        AeroPainter.setSectionThemesSupplier(() -> stagedSectionThemes);
         return new AeroConfigScreen(parent,
                 Component.translatable("sandpaper.screen.title"),
                 SandpaperFonts::lettering);
     }
-    // Sandpaper's page, read live; id namespaced to sandpaper's own mod id.
+    // Sandpaper's settings page.
     @Override
     public List<SettingsPage> pages() {
         SandpaperConfig live = Sandpaper.config();
@@ -87,7 +87,6 @@ public final class SandpaperConfigScreen implements SettingsContributor {
                 new SettingsPage(
                         SCHEDULING_ID,
                         Component.translatable("sandpaper.config.category.scheduling"),
-                        // Budgets and threads are not on this screen; SandpaperConfig.pinToDefaults holds them.
                         List.of(diagnostics(live, DEFAULT_CONFIG))),
                 new SettingsPage(
                         LETTERING_ID,
@@ -97,9 +96,9 @@ public final class SandpaperConfigScreen implements SettingsContributor {
                 new SettingsPage(
                         APPEARANCE_ID,
                         Component.translatable("sandpaper.config.category.appearance"),
-                        List.of(appearance(live, DEFAULT_CONFIG))));
+                        List.of(appearance(live, DEFAULT_CONFIG), themes(live, DEFAULT_CONFIG))));
     }
-    // True when the write was accepted; a background write may still be running.
+    // Returns true when the write was accepted.
     @Override
     public boolean save() {
         try {
@@ -118,7 +117,7 @@ public final class SandpaperConfigScreen implements SettingsContributor {
         }
     }
     private static boolean raiseToast(SystemToast.SystemToastId id, Component title,
-                                      Component body) {
+            Component body) {
         Minecraft client = Minecraft.getInstance();
         if (client == null) {
             return false;
@@ -145,7 +144,6 @@ public final class SandpaperConfigScreen implements SettingsContributor {
     private static final Component TICK_SHARE_DESC =
             Component.translatable("sandpaper.option.tick_share.desc");
     private static SettingsGroup budgets(SandpaperConfig c, SandpaperConfig defaults) {
-        // The floor bound recomputes from the ceilings' current staged values.
         StagedBudget staged = new StagedBudget(c.floorMicros, c.renderCeilingMicros,
                 c.tickCeilingMicros);
         return new SettingsGroup(
@@ -208,14 +206,13 @@ public final class SandpaperConfigScreen implements SettingsContributor {
                                 v -> c.applyPerTick = v,
                                 SandpaperConfig.MIN_APPLY, SandpaperConfig.MAX_APPLY, 1)));
     }
-    // Must mirror normalise()'s clamp exactly.
+    // Same clamp as normalise().
     static int floorSliderMax(int renderCeilingMicros, int tickCeilingMicros,
-                              int sliderMin, int saveClamp) {
+            int sliderMin, int saveClamp) {
         return Math.clamp(Math.min(renderCeilingMicros, tickCeilingMicros),
                 sliderMin, saveClamp);
     }
     private static SettingsGroup threads(SandpaperConfig c, SandpaperConfig defaults) {
-        // availableProcessors() can disagree between calls.
         int processors = Runtime.getRuntime().availableProcessors();
         boolean[] workerTouched = {false};
         return new SettingsGroup(
@@ -247,11 +244,10 @@ public final class SandpaperConfigScreen implements SettingsContributor {
                                 SandpaperConfig.MIN_QUEUE, SandpaperConfig.MAX_QUEUE,
                                 QUEUE_STEP)));
     }
-    // Floor of 2, not 1.
+    // Minimum slider value of two.
     static int workerThreadSliderMax(int processors, int saveClamp) {
         return Math.min(saveClamp, Math.max(2, processors));
     }
-    // touched tells an edited value from an unedited one.
     static int workerThreadsToStore(int staged, int current, boolean touched) {
         return touched ? staged : current;
     }
@@ -265,7 +261,6 @@ public final class SandpaperConfigScreen implements SettingsContributor {
                                 defaults.debugReadout,
                                 c.debugReadout,
                                 v -> c.debugReadout = v),
-                        // Adds detail only; errors are logged either way.
                         new OptionSpec.Toggle(
                                 Component.translatable("sandpaper.option.verbose_logging"),
                                 Component.translatable("sandpaper.option.verbose_logging.desc"),
@@ -347,6 +342,22 @@ public final class SandpaperConfigScreen implements SettingsContributor {
                                 () -> stagedAccentIndex == customIndex,
                                 null)));
     }
+    private static SettingsGroup themes(SandpaperConfig c, SandpaperConfig defaults) {
+        return new SettingsGroup(
+                Component.translatable("sandpaper.config.group.themes"),
+                List.of(
+                        new OptionSpec.Toggle(
+                                Component.translatable("sandpaper.option.section_themes"),
+                                Component.translatable("sandpaper.option.section_themes.desc"),
+                                defaults.sectionThemes,
+                                c.sectionThemes,
+                                value -> {
+                                    c.sectionThemes = value;
+                                    stagedSectionThemes = value;
+                                },
+                                null,
+                                value -> stagedSectionThemes = value)));
+    }
     private static String blankAsNull(String text) {
         return text == null || text.isBlank() ? null : text;
     }
@@ -374,7 +385,6 @@ public final class SandpaperConfigScreen implements SettingsContributor {
             default -> Component.literal(id);
         };
     }
-    // The one place a saved colour becomes one AeroTheme can draw with; called from sinks, never onChange.
     public static void applyColours(SandpaperConfig c) {
         AeroTheme.useColours(resolveColour(c.themeColour, c.themeCustom),
                 resolveColour(c.accentColour, c.accentCustom));
@@ -389,7 +399,7 @@ public final class SandpaperConfigScreen implements SettingsContributor {
         }
         return presetRgb(chosen);
     }
-    // The approved samples, as RGB; keep in step with SandpaperConfig.COLOURS.
+    // Preset colours as RGB.
     private static int presetRgb(String id) {
         return switch (id) {
             case "blue" -> 0x3B82F6;
@@ -402,7 +412,7 @@ public final class SandpaperConfigScreen implements SettingsContributor {
             default -> AeroTheme.SHIPPED_COLOUR;
         };
     }
-    // Converts a saved treatment name to a drawing treatment; an unknown name falls back to Aero.
+    // Maps a treatment name to its drawing treatment.
     private static AeroTheme.Treatment treatmentNamed(String name) {
         String chosen = SandpaperConfig.normaliseTreatment(name);
         if (SandpaperConfig.LIQUID_TREATMENT.equals(chosen)) {
@@ -414,10 +424,9 @@ public final class SandpaperConfigScreen implements SettingsContributor {
         return AeroTheme.Treatment.AERO;
     }
     private static SettingsGroup lettering(SandpaperConfig c, SandpaperConfig defaults,
-                                           List<Face> faces) {
+            List<Face> faces) {
         String stored = SandpaperConfig.normaliseFontId(c.fontId);
         List<String> ids = faceIds(faces, stored);
-        // Staged face for this screen; not written into c until Apply.
         String[] chosen = {stored};
         BooleanSupplier picked = () -> !chosen[0].isEmpty();
         List<FontScope> scopes = List.of(FontScope.values());
@@ -529,7 +538,7 @@ public final class SandpaperConfigScreen implements SettingsContributor {
         return labels;
     }
     static void adoptFont(SandpaperConfig editing, AeroConfigScreen requestedBy,
-                          String chosen) {
+            String chosen) {
         if (requestedBy == null || requestedBy != currentConfigScreen()) {
             LOGGER.warn("a font pick was dropped; face {} installed but "
                     + "not selected.", chosen);
@@ -553,9 +562,8 @@ public final class SandpaperConfigScreen implements SettingsContributor {
                 Component.translatableWithFallback("sandpaper.toast.font_pick_dropped.body",
                         "Font copied, not selected. Open settings to choose it"));
     }
-    // Reads current at open and at Apply; touched tells the sink an edited row from an untouched one.
     private static OptionSpec shareRow(Component name, Component description, double shipped,
-                                       DoubleSupplier current, DoubleConsumer sink) {
+            DoubleSupplier current, DoubleConsumer sink) {
         boolean[] touched = {false};
         return new OptionSpec.IntSlider(name, description,
                 sharePercent(shipped, MIN_SHARE_PERCENT, MAX_SHARE_PERCENT),
@@ -566,13 +574,12 @@ public final class SandpaperConfigScreen implements SettingsContributor {
                 null,
                 v -> touched[0] = true);
     }
-    // Rounds to the nearest percent, not truncates; clamped to the slider's own bounds.
+    // Rounds to the nearest percent.
     static int sharePercent(double share, int minPercent, int maxPercent) {
         return Math.clamp(Math.round(share * 100.0), minPercent, maxPercent);
     }
-    // Untouched returns current exactly; a touched value at the shipped percent returns shipped exactly.
     static double shareFromPercent(int percent, double current, double shipped, boolean touched,
-                                   int minPercent, int maxPercent) {
+            int minPercent, int maxPercent) {
         if (!touched) {
             return current;
         }
@@ -581,7 +588,7 @@ public final class SandpaperConfigScreen implements SettingsContributor {
                 : percent / 100.0;
     }
     static double shareToStore(int percent, double current, double shipped, boolean touched,
-                               int minPercent, int maxPercent) {
+            int minPercent, int maxPercent) {
         return shareFromPercent(percent, current, shipped, touched, minPercent, maxPercent);
     }
 }

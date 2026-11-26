@@ -16,6 +16,9 @@
     ],
     "sandpaper-settings": [
       "dev.sandpaper.client.SandpaperConfigScreen"
+    ],
+    "sandpaper-themes": [
+      "dev.sandpaper.client.gui.theme.ThemeWorkbenchSkeleton"
     ]
   },
   "mixins": [

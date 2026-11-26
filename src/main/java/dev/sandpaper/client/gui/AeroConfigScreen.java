@@ -2,6 +2,8 @@ package dev.sandpaper.client.gui;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.sandpaper.Sandpaper;
 import dev.sandpaper.client.gui.options.Opt;
+import dev.sandpaper.client.gui.theme.ThemeGameSurface;
+import dev.sandpaper.client.gui.theme.ThemeMenuSession;
 import java.util.function.UnaryOperator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -19,7 +21,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-// Owns input, saving and narration; all drawing is done by AeroPainter
 public final class AeroConfigScreen extends Screen {
     private static final Logger LOGGER = LoggerFactory.getLogger(Sandpaper.MOD_ID);
     private static final SystemToast.SystemToastId STAGE_FAILED_TOAST =
@@ -33,12 +34,13 @@ public final class AeroConfigScreen extends Screen {
     private final UnaryOperator<Font> lettering;
     private final AeroPainter painter;
     private AeroGameSurface surface;
+    private ThemeMenuSession themeSession = null;
+    private ThemeGameSurface themeSurface = null;
     private Font lastPaintedFont;
     private Language lastLanguage;
     private boolean awaitingDoneSave;
     private Applied doneApplied;
     private boolean retired;
-    // The same screen, lettered by a supplied font operator
     public AeroConfigScreen(Screen parent, Component title, UnaryOperator<Font> lettering) {
         this(parent, title, lettering, null);
     }
@@ -57,10 +59,11 @@ public final class AeroConfigScreen extends Screen {
                 }
             }
         }
-        // Apply logs failures but never closes the screen
         this.painter.onApply(this::applyAndReport);
         this.painter.onDone(this::applyAndClose);
-        // Already guarded in SettingsContributions.row
+        if (AeroPainter.sectionThemesEnabled()) {
+            openThemeSession();
+        }
         this.painter.onButton(Opt.Action::run);
         this.painter.onPress(this::playClick);
     }
@@ -71,7 +74,6 @@ public final class AeroConfigScreen extends Screen {
         AeroGameSurface.forgetTextWidths();
         painter.forgetFooterWrap();
     }
-    // The painter draws blur and wash here instead
     @Override
     public void extractBackground(GuiGraphicsExtractor gfx, int mouseX, int mouseY,
             float partial) {
@@ -82,6 +84,7 @@ public final class AeroConfigScreen extends Screen {
         if (pollPendingDoneSave()) {
             return;
         }
+        syncThemeSession();
         Language language = Language.getInstance();
         if (language != lastLanguage) {
             painter.refreshTitle(getTitle());
@@ -96,10 +99,45 @@ public final class AeroConfigScreen extends Screen {
             painter.forgetFooterWrap();
             lastPaintedFont = surface.font();
         }
-        painter.paint(surface, mouseX, mouseY, System.nanoTime());
+        if (themeSession != null) {
+            themeSurface.retarget(gfx, surface.font());
+            themeSession.bindSurface(themeSurface);
+            try {
+                surface.beginBlurredStratum();
+                painter.paintThemed(surface, mouseX, mouseY, System.nanoTime());
+            } finally {
+                themeSession.bindSurface(null);
+            }
+        } else {
+            painter.paint(surface, mouseX, mouseY, System.nanoTime());
+        }
         super.extractRenderState(gfx, mouseX, mouseY, partial);
     }
-    // Rebuilds the screen keeping staged edits; sinks run early, nothing is written to disk
+    private void syncThemeSession() {
+        if (!retired && AeroPainter.sectionThemesEnabled()) {
+            if (themeSession == null) {
+                openThemeSession();
+            } else {
+                themeSession.refreshFallback(AeroPainter.treatment());
+            }
+        } else {
+            closeThemeSession();
+        }
+    }
+    private void openThemeSession() {
+        themeSession = ThemeMenuSession.open(contributions.contributed(), AeroPainter.treatment());
+        themeSurface = new ThemeGameSurface();
+        painter.onCancel(this::onClose);
+        painter.attachThemeSession(themeSession);
+    }
+    private void closeThemeSession() {
+        if (themeSession != null) {
+            themeSession.close();
+            themeSession = null;
+            themeSurface = null;
+            painter.attachThemeSession(null);
+        }
+    }
     public void rebuildKeepingEdits(Runnable between) {
         rebuildKeepingEdits(between, this::reportRebuildRefused);
     }
@@ -114,7 +152,6 @@ public final class AeroConfigScreen extends Screen {
         int pageIndex = painter.page();
         Identifier pageInView = pageIndex >= 0 && pageIndex < contributions.contributed().size()
                 ? contributions.contributed().get(pageIndex).id() : null;
-        // Rebuild proceeds even if staging fails for a row; the failure is only logged
         if (!stage()) {
             LOGGER.error("a row failed to hand its value to its mod; rebuilt without it.");
             reportStageFailed();
@@ -124,12 +161,10 @@ public final class AeroConfigScreen extends Screen {
         }
         client().setScreenAndShow(new AeroConfigScreen(parent, getTitle(), lettering, pageInView));
     }
-    // Moves pending values into configs; writes nothing to disk. False if any row failed
     private boolean stage() {
         painter.commitEditing();
         return contributions.applyAll();
     }
-    // Always runs both stage and save
     private Applied applyNow() {
         boolean staged = stage();
         boolean written = contributions.saveAll();
@@ -142,7 +177,6 @@ public final class AeroConfigScreen extends Screen {
             reportFailures(applied.staged(), applied.unreported());
         }
     }
-    // Closes only if staging and writing both succeed; a failing sink keeps it open forever
     private void applyAndClose() {
         if (awaitingDoneSave) {
             return;
@@ -197,7 +231,6 @@ public final class AeroConfigScreen extends Screen {
                 Component.translatableWithFallback("sandpaper.toast.stage_failed.body",
                         "Setting not applied. Check the log"));
     }
-    // Escape commits nothing; every contributor's file is left exactly as it was
     @Override
     public void onClose() {
         if (awaitingDoneSave) {
@@ -212,6 +245,7 @@ public final class AeroConfigScreen extends Screen {
     @Override
     public void removed() {
         contributions.screenRemoved();
+        closeThemeSession();
         if (client().gui.screen() == null) {
             retire();
             return;
@@ -225,6 +259,7 @@ public final class AeroConfigScreen extends Screen {
     private void retire() {
         if (!retired) {
             retired = true;
+            closeThemeSession();
             SettingsContributions.closed();
         }
     }
@@ -235,11 +270,9 @@ public final class AeroConfigScreen extends Screen {
                 Component.translatableWithFallback("sandpaper.toast.rebuild_refused.body",
                         "Not changed. Try again when saving finishes"));
     }
-    // Minecraft field is set before any callback fires
     private Minecraft client() {
         return minecraft == null ? Minecraft.getInstance() : minecraft;
     }
-    // Vanilla's button click, once per press that acts; client thread only
     private void playClick() {
         AbstractWidget.playButtonClickSound(client().getSoundManager());
     }
@@ -287,16 +320,20 @@ public final class AeroConfigScreen extends Screen {
         if (awaitingDoneSave) {
             return true;
         }
+        if (painter.isThemePeek()) {
+            return true;
+        }
         return painter.codepointTyped(event.codepoint()) || super.charTyped(event);
     }
-    // Checks paste, copy and cut via the event, before the switch
     @Override
     public boolean keyPressed(KeyEvent event) {
         if (awaitingDoneSave) {
             return true;
         }
+        if (painter.isThemePeek()) {
+            return super.keyPressed(event);
+        }
         if (event.isPaste()) {
-            // getClipboard never returns null and surrogates are already filtered out
             if (painter.pasteTarget()
                     && painter.paste(client().keyboardHandler.getClipboard())) {
                 return true;
@@ -363,11 +400,9 @@ public final class AeroConfigScreen extends Screen {
         }
         return super.keyPressed(event);
     }
-    // True while typing; lets space be a character instead of triggering activate
     private boolean typing() {
         return painter.pasteTarget();
     }
-    // Reports title and focus; narration() handles an empty page list safely
     @Override
     protected void updateNarrationState(NarrationElementOutput output) {
         output.add(NarratedElementType.TITLE, getTitle());

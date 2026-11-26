@@ -6,7 +6,6 @@ import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
-// One key opens settings for every installed contributor; add no per-mod key.
 public final class SandpaperKeys {
     public static final KeyMapping.Category CATEGORY =
             KeyMapping.Category.register(
@@ -14,7 +13,6 @@ public final class SandpaperKeys {
     public static KeyMapping openSettings;
     private SandpaperKeys() {
     }
-    // Call once, from the client initializer; a second call adds a duplicate listener.
     public static void register() {
         openSettings = KeyMappingHelper.registerKeyMapping(openSettingsMapping());
         ClientTickEvents.END_CLIENT_TICK.register(SandpaperKeys::handleKeys);
@@ -28,7 +26,6 @@ public final class SandpaperKeys {
     }
     private static void handleKeys(Minecraft client) {
         while (openSettings.consumeClick()) {
-            // No screen is open when a keybind fires here; null returns to the game.
             client.setScreenAndShow(SandpaperConfigScreen.create(null));
         }
     }
